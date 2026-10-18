@@ -20,6 +20,11 @@ class Prefs private constructor(context: Context) {
         get() = sp.getBoolean(KEY_NUMBER_ROW, true)
         set(v) = sp.edit { putBoolean(KEY_NUMBER_ROW, v) }
 
+    /** LAYOUT_IOS or LAYOUT_PC. */
+    var keyboardLayout: Int
+        get() = sp.getInt(KEY_KEYBOARD_LAYOUT, LAYOUT_IOS).coerceIn(LAYOUT_IOS, LAYOUT_PC)
+        set(v) = sp.edit { putInt(KEY_KEYBOARD_LAYOUT, v.coerceIn(LAYOUT_IOS, LAYOUT_PC)) }
+
     var showToolbar: Boolean
         get() = sp.getBoolean(KEY_TOOLBAR, true)
         set(v) = sp.edit { putBoolean(KEY_TOOLBAR, v) }
@@ -184,9 +189,13 @@ class Prefs private constructor(context: Context) {
         const val THEME_AUTO = 2
         const val THEME_CUSTOM = 3
 
+        const val LAYOUT_IOS = 0
+        const val LAYOUT_PC = 1
+
         const val DEFAULT_ACCENT = 0xFF0A84FF.toInt()
 
         private const val KEY_NUMBER_ROW = "number_row"
+        private const val KEY_KEYBOARD_LAYOUT = "keyboard_layout"
         private const val KEY_TOOLBAR = "show_toolbar"
         private const val KEY_CLIP_KEY = "show_clip_key"
         private const val KEY_ONE_HAND = "one_hand"

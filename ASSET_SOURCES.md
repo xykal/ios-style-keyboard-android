@@ -1,12 +1,11 @@
 # Kamus / wordlist: sumber dan batasan
 
-Aset di `app/src/main/assets/` dibuat sebagai wordlist runtime kecil—tidak berisi definisi, akun, clipboard pengguna, atau koneksi jaringan.
+Aset di `app/src/main/assets/` adalah wordlist runtime tanpa definisi. Tidak memuat akun, data clipboard pengguna, atau koneksi jaringan.
 
-- **Frekuensi kata Indonesia & English:** [FrequencyWords](https://github.com/hermitdave/FrequencyWords), file dari folder `content/2018/id/id_50k.txt` dan `content/2018/en/en_50k.txt`. Lisensi repository menyebut MIT; atribusi hak cipta tetap berlaku.
-- **Wordlist Indonesia tambahan:** [mychaelgo/indonesia-wordlist](https://github.com/mychaelgo/indonesia-wordlist), file `indonesian-wordlist.lst`, sekitar 79.901 baris sebelum penyaringan. Repository menerangkan daftar ini sebagai hasil crawling; tidak ditemukan file lisensi terpisah saat proyek disusun. Karena itu wordlist ini disertakan untuk pengembangan/pengujian pribadi dan **status redistribusi/komersial perlu diperiksa** oleh pemilik project.
-- Kamus Indonesia ini bukan produk resmi KBBI dan tidak menyertakan definisi. Ada juga varian kata informal dari korpus frekuensi; koreksi tidak selalu cocok untuk nama, slang, atau bahasa campuran.
-
-Pembentukan aset: kata dibatasi huruf Latin, dideduplikasi, lalu dibuat file ranking untuk prediksi/swipe dan file set untuk koreksi offline. Bahasa Indonesia memakai 14.000 kata berfrekuensi teratas, English 12.000; spell set Indonesia menambah wordlist Indonesia hasil crawling. Jumlah final: 14.000 + 12.000 ranked entries; sekitar 83.110 spell words Indonesia dan 12.000 English.
+- **Frekuensi kata Indonesia & English:** [FrequencyWords](https://github.com/hermitdave/FrequencyWords), file `content/2018/id/id_50k.txt` dan `content/2018/en/en_50k.txt`. Lisensi upstream adalah MIT; atribusi dan pemberitahuan lisensi dipertahankan di `THIRD_PARTY_NOTICES.md`.
+- **Normalisasi aset:** daftar spell `spell_id.txt` dan `spell_en.txt` dibuat dari file 50k di atas, disaring menjadi kata Latin a–z sepanjang 2–20 huruf, dideduplikasi, dan diurutkan alfabetis. Tidak ada lagi wordlist Indonesia dari sumber tanpa lisensi yang jelas.
+- Daftar prediksi berperingkat tetap menggunakan 14.000 kata Indonesia dan 12.000 kata English teratas dari FrequencyWords; daftar ini dipakai untuk saran dan swipe. Spell set hasil normalisasi berisi 46.917 kata Indonesia dan 46.691 kata English.
+- Kamus Indonesia ini bukan produk resmi KBBI dan tidak menyertakan definisi. Korpus frekuensi dapat mengandung nama, istilah informal, atau kata yang jarang; koreksi otomatis tidak selalu tepat. Pengguna dapat mematikan koreksi dan prediksi.
 
 ## Terjemahan
 

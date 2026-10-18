@@ -1,6 +1,10 @@
 package com.ioskeyboard.app.ime
 
+import android.content.ClipData
 import android.content.Context
+import android.widget.Toast
+import com.ioskeyboard.app.data.ClipItem
+import com.ioskeyboard.app.data.ClipStore
 import android.os.Handler
 import android.os.Looper
 import android.view.inputmethod.InputMethodManager
@@ -21,6 +25,24 @@ object KeyboardBridge {
         } else {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("iOS Keyboard", text))
+        }
+    }
+
+    fun insertClip(context: Context, item: ClipItem) {
+        val ime = current.get()
+        if (ime != null) {
+            Handler(Looper.getMainLooper()).post { ime.onClipSelected(item) }
+            return
+        }
+        if (item.isImage) {
+            val uri = ClipStore.get(context).imageUri(item)
+            if (uri != null) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Gambar", uri))
+                Toast.makeText(context, "Gambar disalin ke papan klip", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            insertText(context, item.text)
         }
     }
 

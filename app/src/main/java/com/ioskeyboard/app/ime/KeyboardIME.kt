@@ -2,10 +2,9 @@ package com.ioskeyboard.app.ime
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ClipDescription
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
-import android.graphics.Color
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -15,14 +14,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
-import android.text.TextUtils
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
 import android.inputmethodservice.InputMethodService
 import android.widget.Toast
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
 import com.ioskeyboard.app.data.ClipItem
 import com.ioskeyboard.app.data.ClipStore
 import com.ioskeyboard.app.data.DictionaryEngine
@@ -44,6 +43,8 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     private var clipboardManager: ClipboardManager? = null
     private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var sensitiveField = false
+    private var predictionsAllowed = true
+    private var activeMetaState = 0
     private var currentLanguage = DictionaryEngine.LANG_ID
     private var shiftState = 0
     private var lastShiftTap = 0L
@@ -80,14 +81,25 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         val info = attribute ?: return
-        val inputClass = info.inputType and android.text.InputType.TYPE_MASK_CLASS
-        val variation = info.inputType and android.text.InputType.TYPE_MASK_VARIATION
+        val type = info.inputType
+        val inputClass = type and android.text.InputType.TYPE_MASK_CLASS
+        val variation = type and android.text.InputType.TYPE_MASK_VARIATION
         val password = inputClass == android.text.InputType.TYPE_CLASS_TEXT && variation in setOf(
             android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
             android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
             android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
         ) || inputClass == android.text.InputType.TYPE_CLASS_NUMBER && variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        sensitiveField = password || (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+        val noPersonalizedLearning = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+        sensitiveField = password || noPersonalizedLearning
+        val noSuggestionsFlag = (type and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0
+        val addressLike = variation in setOf(
+            android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+            android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+            android.text.InputType.TYPE_TEXT_VARIATION_URI,
+            android.text.InputType.TYPE_TEXT_VARIATION_FILTER
+        )
+        predictionsAllowed = !sensitiveField && inputClass == android.text.InputType.TYPE_CLASS_TEXT && !noSuggestionsFlag && !addressLike
+        activeMetaState = 0
         if (sensitiveField) stopClipboardCapture()
 
         val hintLocale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) info.hintLocales?.get(0) else null
@@ -97,14 +109,14 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
             currentLanguage == DictionaryEngine.LANG_EN -> DictionaryEngine.LANG_EN
             else -> DictionaryEngine.LANG_ID
         }
-        val type = info.inputType
         val noAutoCap = (type and android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) == 0 &&
             (type and android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS) == 0 &&
             (type and android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS) == 0
-        shiftState = if (!sensitiveField && !noAutoCap && prefs.autoCapitalize) 1 else 0
+        shiftState = if (predictionsAllowed && !noAutoCap && prefs.autoCapitalize) 1 else 0
         translateSource = ""
         translateResult = ""
         translationToken++
+        swipeRequestId.incrementAndGet()
         activeSurface()?.setLanguageLabel(if (currentLanguage == DictionaryEngine.LANG_EN) "English" else "Indonesia")
         activeSurface()?.setShifted(shiftState > 0)
     }
@@ -165,8 +177,19 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
         if (!prefs.clipboardCapture || sensitiveField) return
         try {
             val clip = clipboardManager?.primaryClip ?: return
-            if (clip.itemCount == 0) return
-            val text = clip.getItemAt(0).coerceToText(this)?.toString()?.trim().orEmpty()
+            if (clip.itemCount == 0 || isSensitiveClip(clip)) return
+            val description = clip.description
+            val firstItem = clip.getItemAt(0)
+            val imageMime = (0 until description.mimeTypeCount)
+                .map { description.getMimeType(it) }
+                .firstOrNull { it.startsWith("image/") }
+                ?: firstItem.uri?.let { contentResolver.getType(it) }?.takeIf { it.startsWith("image/") }
+            if (imageMime != null && firstItem.uri != null) {
+                clipStore.saveImage(firstItem.uri!!, imageMime)
+                if (activeSurface()?.getMode() == KeyboardSurface.Mode.CLIPBOARD) refreshClips(currentClipFilter)
+                return
+            }
+            val text = firstItem.coerceToText(this)?.toString()?.trim().orEmpty()
             if (text.isNotBlank()) {
                 clipStore.save(text)
                 if (activeSurface()?.getMode() == KeyboardSurface.Mode.CLIPBOARD) refreshClips(currentClipFilter)
@@ -174,6 +197,15 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
         } catch (_: SecurityException) {
             // Clipboard access is restricted by Android and some apps; history remains available.
         } catch (_: Exception) { }
+    }
+
+    private fun isSensitiveClip(clip: ClipData): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        return try {
+            clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Set by the overlay service so suggestions and translation keep updating in floating mode. */
@@ -192,12 +224,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     fun refreshFromOverlay(surface: KeyboardSurface) {
-        if (sensitiveField || !prefs.predictions) {
-            surface.setSuggestions(emptyList())
-            return
-        }
-        val word = wordBeforeCursor()
-        surface.setSuggestions(if (word.isBlank()) emptyList() else dictionary.suggest(word, currentLanguage, 3))
+        surface.setSuggestions(suggestionsAtCursor())
     }
 
     private fun activeSurface(): KeyboardSurface? = floatingSurface ?: keyboard
@@ -207,28 +234,39 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
         return WORD_AT_END.find(before)?.value.orEmpty()
     }
 
+    private fun suggestionsAtCursor(): List<String> {
+        if (sensitiveField || !predictionsAllowed || !prefs.predictions) return emptyList()
+        val current = wordBeforeCursor()
+        if (current.isNotBlank()) return dictionary.suggest(current, currentLanguage, 3)
+        val before = currentInputConnection?.getTextBeforeCursor(160, 0)?.toString().orEmpty()
+        val previous = WORD_IN_TEXT.findAll(before).lastOrNull()?.value.orEmpty()
+        return dictionary.suggestNext(previous, currentLanguage, 3)
+    }
+
     private fun refreshSuggestions() {
-        val view = activeSurface() ?: return
-        if (sensitiveField || !prefs.predictions) {
-            view.setSuggestions(emptyList())
-            return
-        }
-        val word = wordBeforeCursor()
-        if (word.isBlank()) {
-            view.setSuggestions(emptyList())
-            return
-        }
-        view.setSuggestions(dictionary.suggest(word, currentLanguage, 3))
+        activeSurface()?.setSuggestions(suggestionsAtCursor())
     }
 
     private fun formatCase(original: String, replacement: String): String = when {
-        original.all { !it.isLetter() || it.isUpperCase() } -> replacement.uppercase(Locale.getDefault())
+        original.isNotEmpty() && original.all { !it.isLetter() || it.isUpperCase() } -> replacement.uppercase(Locale.getDefault())
         original.firstOrNull()?.isUpperCase() == true -> replacement.replaceFirstChar { it.uppercase(Locale.getDefault()) }
         else -> replacement
     }
 
     override fun onText(text: String) {
         val value = if (shiftState > 0 && text.length == 1 && text[0].isLetter()) text.uppercase(Locale.getDefault()) else text
+        if (prefs.keyboardLayout == Prefs.LAYOUT_PC && activeMetaState != 0 && value.length == 1) {
+            val code = hardwareKeyCode(value[0])
+            if (code != null) {
+                sendHardwareKey(code, activeMetaState or if (shiftState > 0) KeyEvent.META_SHIFT_ON else 0)
+                activeMetaState = 0
+                if (shiftState == 1) shiftState = 0
+                activeSurface()?.setShifted(shiftState > 0)
+                refreshSuggestions()
+                playKeySound()
+                return
+            }
+        }
         currentInputConnection?.commitText(value, 1)
         if (shiftState == 1 && text.length == 1 && text[0].isLetter()) shiftState = 0
         activeSurface()?.setShifted(shiftState > 0)
@@ -278,12 +316,12 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
             ic.deleteSurroundingText(1, 0)
             ic.commitText(". ", 1)
             lastSpaceTap = 0
-            if (prefs.autoCapitalize && !sensitiveField) {
+            if (prefs.autoCapitalize && predictionsAllowed) {
                 shiftState = 1
                 activeSurface()?.setShifted(true)
             }
         } else {
-            if (!sensitiveField && prefs.autoCorrect) {
+            if (predictionsAllowed && prefs.autoCorrect) {
                 val word = WORD_AT_END.find(before)?.value.orEmpty()
                 if (word.length >= 3) {
                     val correction = dictionary.correctOneEdit(word, currentLanguage)
@@ -295,7 +333,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
             }
             ic.commitText(" ", 1)
             lastSpaceTap = now
-            if (prefs.autoCapitalize && !sensitiveField && (before.isBlank() || before.trimEnd().endsWith(".") || before.trimEnd().endsWith("!") || before.trimEnd().endsWith("?"))) {
+            if (prefs.autoCapitalize && predictionsAllowed && (before.isBlank() || before.trimEnd().endsWith(".") || before.trimEnd().endsWith("!") || before.trimEnd().endsWith("?"))) {
                 shiftState = 1
                 activeSurface()?.setShifted(true)
             }
@@ -317,7 +355,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     override fun onCandidate(word: String) {
-        if (sensitiveField || word.isBlank()) return
+        if (sensitiveField || !predictionsAllowed || word.isBlank()) return
         val current = wordBeforeCursor()
         if (current.isNotBlank()) currentInputConnection?.deleteSurroundingText(current.length, 0)
         val replacement = if (current.isBlank()) word else formatCase(current, word)
@@ -328,13 +366,13 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     override fun onSwipe(signature: String) {
-        if (!prefs.swipeTyping || sensitiveField) return
+        if (!prefs.swipeTyping || prefs.keyboardLayout != Prefs.LAYOUT_IOS || sensitiveField || !predictionsAllowed) return
         val requestId = swipeRequestId.incrementAndGet()
         val language = currentLanguage
         swipeExecutor.execute {
             val matches = dictionary.bestSwipe(signature, language, 3)
             main.post {
-                if (requestId != swipeRequestId.get() || matches.isEmpty() || sensitiveField) return@post
+                if (requestId != swipeRequestId.get() || matches.isEmpty() || sensitiveField || !predictionsAllowed) return@post
                 val current = wordBeforeCursor()
                 if (current.isNotBlank()) currentInputConnection?.deleteSurroundingText(current.length, 0)
                 val best = formatCase(current, matches.first())
@@ -367,6 +405,21 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
                 activeSurface()?.invalidate()
                 toast(if (prefs.oneHandMode == 0) "Mode satu tangan mati" else if (prefs.oneHandMode == 1) "Keyboard rapat kiri" else "Keyboard rapat kanan")
             }
+            "LAYOUT_TOGGLE" -> {
+                prefs.keyboardLayout = if (prefs.keyboardLayout == Prefs.LAYOUT_IOS) Prefs.LAYOUT_PC else Prefs.LAYOUT_IOS
+                shiftState = 0
+                activeMetaState = 0
+                activeSurface()?.setShifted(false)
+                activeSurface()?.invalidate()
+                toast(if (prefs.keyboardLayout == Prefs.LAYOUT_PC) "Layout QWERTY PC" else "Layout iOS")
+            }
+            "PC_MOD_CTRL" -> togglePcModifier(KeyEvent.META_CTRL_ON)
+            "PC_MOD_ALT" -> togglePcModifier(KeyEvent.META_ALT_ON)
+            "PC_MOD_META" -> togglePcModifier(KeyEvent.META_META_ON)
+            "PC_CAPS_LOCK" -> {
+                shiftState = if (shiftState == 2) 0 else 2
+                activeSurface()?.setCapsLock(shiftState == 2)
+            }
             "CLIPBOARD_HISTORY" -> startActivity(Intent(this, com.ioskeyboard.app.ui.ClipboardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             "CLIPBOARD_CLEAR" -> {
                 clipStore.clear(includePinned = false)
@@ -384,20 +437,112 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
             "CURSOR_${KeyEvent.KEYCODE_DPAD_RIGHT}" -> sendDpad(KeyEvent.KEYCODE_DPAD_RIGHT)
             "EMOJI_SEARCH" -> toast("Pilih kategori emoji dengan tombol di atas")
             "EMOJI_BACK" -> activeSurface()?.setMode(KeyboardSurface.Mode.KEYBOARD)
+            else -> if (action.startsWith("PC_KEY_")) dispatchPcKey(action)
         }
     }
 
+    private fun togglePcModifier(mask: Int) {
+        activeMetaState = activeMetaState xor mask
+        activeSurface()?.invalidate()
+    }
+
+    private fun dispatchPcKey(action: String) {
+        val code = when (action) {
+            "PC_KEY_ESCAPE" -> KeyEvent.KEYCODE_ESCAPE
+            "PC_KEY_TAB" -> KeyEvent.KEYCODE_TAB
+            "PC_KEY_FUNCTION" -> KeyEvent.KEYCODE_FUNCTION
+            "PC_KEY_DPAD_LEFT" -> KeyEvent.KEYCODE_DPAD_LEFT
+            "PC_KEY_DPAD_DOWN" -> KeyEvent.KEYCODE_DPAD_DOWN
+            "PC_KEY_DPAD_UP" -> KeyEvent.KEYCODE_DPAD_UP
+            "PC_KEY_DPAD_RIGHT" -> KeyEvent.KEYCODE_DPAD_RIGHT
+            "PC_KEY_HOME" -> KeyEvent.KEYCODE_MOVE_HOME
+            "PC_KEY_END" -> KeyEvent.KEYCODE_MOVE_END
+            "PC_KEY_PAGE_UP" -> KeyEvent.KEYCODE_PAGE_UP
+            "PC_KEY_PAGE_DOWN" -> KeyEvent.KEYCODE_PAGE_DOWN
+            "PC_KEY_INSERT" -> KeyEvent.KEYCODE_INSERT
+            "PC_KEY_FORWARD_DEL" -> KeyEvent.KEYCODE_FORWARD_DEL
+            else -> action.removePrefix("PC_KEY_F").toIntOrNull()?.takeIf { it in 1..12 }?.let { KeyEvent.KEYCODE_F1 + it - 1 }
+        }
+        if (code != null) sendHardwareKey(code, activeMetaState)
+    }
+
+    private fun hardwareKeyCode(char: Char): Int? {
+        val value = char.lowercaseChar()
+        return when {
+            value in 'a'..'z' -> KeyEvent.KEYCODE_A + (value - 'a')
+            value in '0'..'9' -> when (value) {
+                '0' -> KeyEvent.KEYCODE_0
+                '1' -> KeyEvent.KEYCODE_1
+                '2' -> KeyEvent.KEYCODE_2
+                '3' -> KeyEvent.KEYCODE_3
+                '4' -> KeyEvent.KEYCODE_4
+                '5' -> KeyEvent.KEYCODE_5
+                '6' -> KeyEvent.KEYCODE_6
+                '7' -> KeyEvent.KEYCODE_7
+                '8' -> KeyEvent.KEYCODE_8
+                else -> KeyEvent.KEYCODE_9
+            }
+            else -> null
+        }
+    }
+
+    private fun sendHardwareKey(code: Int, metaState: Int = activeMetaState) {
+        val ic = currentInputConnection ?: return
+        val downTime = android.os.SystemClock.uptimeMillis()
+        ic.sendKeyEvent(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, code, 0, metaState))
+        ic.sendKeyEvent(KeyEvent(downTime, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, metaState))
+    }
+
     override fun onClipSelected(item: ClipItem) {
+        if (item.isImage) {
+            if (!pasteImage(item)) toast("Gambar disalin. Aplikasi tujuan harus mendukung tempel gambar.")
+            return
+        }
         val ic = currentInputConnection
         if (ic != null) {
             ic.commitText(item.text, 1)
             refreshSuggestions()
         } else {
-            val manager = clipboardManager
-            manager?.setPrimaryClip(ClipData.newPlainText("Papan klip", item.text))
+            clipboardManager?.setPrimaryClip(ClipData.newPlainText("Papan klip", item.text))
             toast("Disalin ke papan klip")
         }
     }
+
+    private fun pasteImage(item: ClipItem): Boolean {
+        val uri = clipStore.imageUri(item)
+        if (uri == null) {
+            toast("File gambar tidak ditemukan")
+            return true
+        }
+        val mimeType = item.mimeType
+        if (mimeType == null) {
+            toast("Format gambar tidak diketahui")
+            return true
+        }
+        val editor = currentInputEditorInfo
+        val connection = currentInputConnection
+        val accepted = editor?.let { EditorInfoCompat.getContentMimeTypes(it).any { mime -> mimeMatches(mimeType, mime) } } == true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 && accepted && editor != null && connection != null) {
+            val content = InputContentInfoCompat(uri, ClipDescription("Gambar", arrayOf(mimeType)), null)
+            val committed = InputConnectionCompat.commitContent(
+                connection,
+                editor,
+                content,
+                InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION,
+                null
+            )
+            if (committed) {
+                toast("Gambar ditempel")
+                return true
+            }
+        }
+        clipboardManager?.setPrimaryClip(ClipData.newUri(contentResolver, "Gambar", uri))
+        return false
+    }
+
+    private fun mimeMatches(actual: String, accepted: String): Boolean =
+        accepted == "*/*" || accepted.equals(actual, true) ||
+            (accepted.endsWith("/*") && actual.startsWith(accepted.substringBefore('*'), true))
 
     override fun onClipPinned(item: ClipItem) {
         clipStore.togglePinned(item.id)
@@ -419,6 +564,10 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     private fun prepareTranslation() {
+        if (sensitiveField) {
+            toast("Terjemahan dinonaktifkan di kolom sandi/pribadi.")
+            return
+        }
         val ic = currentInputConnection
         val selected = ic?.getSelectedText(0)?.toString().orEmpty()
         translateSelectionMode = selected.isNotBlank()
@@ -431,6 +580,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     private fun runTranslation() {
+        if (sensitiveField) return
         if (translateSource.isBlank()) prepareTranslation()
         if (translateSource.isBlank()) {
             activeSurface()?.setTranslation("", prefs.translateTarget, "", "Pilih teks di aplikasi, lalu coba lagi.", false)
@@ -456,6 +606,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
     }
 
     private fun insertTranslation() {
+        if (sensitiveField) return
         val result = translateResult
         if (result.isBlank()) {
             toast("Belum ada hasil terjemahan")
@@ -534,6 +685,7 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
 
     companion object {
         private val WORD_AT_END = Regex("[\\p{L}\\p{M}]+$")
+        private val WORD_IN_TEXT = Regex("[\\p{L}\\p{M}]+")
         private val swipeRequestId = java.util.concurrent.atomic.AtomicInteger()
     }
 }

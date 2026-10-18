@@ -73,8 +73,13 @@ class SettingsActivity : AppCompatActivity() {
         page.addView(bar)
         addLabel("Atur keyboard sesuai cara mengetikmu.", 14f, muted, false, dp(3))
 
+        section("Tata letak")
+        addChoice("Mode keyboard", listOf("iOS", "QWERTY PC"), prefs.keyboardLayout) { index ->
+            prefs.keyboardLayout = if (index == 0) Prefs.LAYOUT_IOS else Prefs.LAYOUT_PC
+        }
+
         section("Mengetik")
-        addSwitch("Prediksi kata", "Saran kata muncul di bar atas. Kamus berjalan offline.", prefs.predictions) { prefs.predictions = it }
+        addSwitch("Prediksi kata", "Saran mengikuti awalan dan beberapa konteks kata umum; kamus tetap offline.", prefs.predictions) { prefs.predictions = it }
         addSwitch("Koreksi typo ringan", "Koreksi satu huruf yang meleset saat menekan spasi.", prefs.autoCorrect) { prefs.autoCorrect = it }
         addSwitch("Gesture / swipe typing", "Geser jari antar huruf untuk membentuk kata (offline).", prefs.swipeTyping) { prefs.swipeTyping = it }
         addSwitch("Kapital otomatis", "Huruf pertama kalimat dibuat kapital.", prefs.autoCapitalize) { prefs.autoCapitalize = it }
@@ -138,13 +143,14 @@ class SettingsActivity : AppCompatActivity() {
         }
         addSlider("Transparansi keyboard mengambang", prefs.floatingOpacity, 30, 100, "%") { prefs.floatingOpacity = it }
         addSlider("Lebar keyboard mengambang", prefs.floatingWidthPercent, 55, 100, "%") { prefs.floatingWidthPercent = it }
+        addLabel("Layout QWERTY PC memakai lebar layar penuh agar tombol F1–F12 dan navigasi mudah ditekan.", 11f, muted, false, dp(2))
         addSlider("Jarak dari bawah layar", prefs.floatingBottomMarginDp, 0, 240, " dp") { prefs.floatingBottomMarginDp = it }
 
         section("Papan klip")
-        addSwitch("Simpan riwayat otomatis", "Menangkap teks yang disalin saat keyboard aktif, kecuali kolom sandi.", prefs.clipboardCapture) { prefs.clipboardCapture = it }
+        addSwitch("Simpan riwayat otomatis", "Simpan teks atau gambar yang disalin saat keyboard aktif; salinan sensitif diabaikan.", prefs.clipboardCapture) { prefs.clipboardCapture = it }
         addSwitch("Pertahankan item disematkan", "Item favorit tetap ada saat membersihkan riwayat.", prefs.keepClipboardOnClear) { prefs.keepClipboardOnClear = it }
         addSlider("Batas item riwayat", prefs.clipboardMaxItems, 50, 2000, " item") { prefs.clipboardMaxItems = it }
-        addButton("Buka riwayat clipboard", "Teks disimpan lokal di perangkat") { startActivity(Intent(this, ClipboardActivity::class.java)) }
+        addButton("Buka riwayat clipboard", "Teks dan gambar disimpan lokal di perangkat") { startActivity(Intent(this, ClipboardActivity::class.java)) }
 
         section("Terjemahan")
         addChoice("Bahasa tujuan", listOf("Indonesia", "English"), if (prefs.translateTarget == "id") 0 else 1) {
@@ -153,7 +159,7 @@ class SettingsActivity : AppCompatActivity() {
         addLabel("Terjemahan hanya diminta saat kamu menekan tombolnya. Teks yang dipilih dikirim melalui internet ke layanan terjemahan; prediksi dan clipboard tidak dikirim.", 12f, muted, false, dp(5))
 
         section("Privasi")
-        addLabel("• Clipboard, kamus, koreksi, dan swipe diproses lokal.\n• Riwayat clipboard berada di database aplikasi, bukan sinkronisasi cloud.\n• Android membatasi akses clipboard; aplikasi tertentu dapat mencegah penangkapan otomatis.\n• Jangan pakai keyboard pihak ketiga untuk mengetik kata sandi bila kamu tidak mempercayai aplikasi keyboard.", 12f, muted, false, dp(4))
+        addLabel("• Prediksi dan koreksi berjalan lokal; kata sandi tidak dipelajari atau disimpan keyboard.\n• Gunakan Android Autofill/password manager untuk login dan sandi.\n• Riwayat clipboard disimpan lokal dan tidak disinkronkan ke cloud; salinan yang ditandai sensitif akan diabaikan.\n• Database aplikasi dikecualikan dari Android Backup. Terjemahan saja yang mengirim teks terpilih ke layanan online saat kamu memintanya.", 12f, muted, false, dp(4))
     }
 
     private fun section(title: String) {

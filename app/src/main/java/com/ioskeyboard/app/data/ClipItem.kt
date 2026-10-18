@@ -6,11 +6,20 @@ data class ClipItem(
     val category: String,
     val pinned: Boolean,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** Relative path inside the app-private files directory; never a raw external URI. */
+    val imagePath: String? = null,
+    val mimeType: String? = null
 ) {
+    val isImage: Boolean get() = !imagePath.isNullOrBlank()
+
     val preview: String
-        get() = text.replace('\n', ' ').replace('\r', ' ').trim().let {
-            if (it.length > 120) it.take(117) + "…" else it
+        get() = if (isImage) {
+            "Gambar${mimeType?.substringAfter('/')?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
+        } else {
+            text.replace('\n', ' ').replace('\r', ' ').trim().let {
+                if (it.length > 120) it.take(117) + "…" else it
+            }
         }
 
     val displayTitle: String
@@ -19,6 +28,7 @@ data class ClipItem(
             CATEGORY_EMAIL -> "Email"
             CATEGORY_CODE -> "Kode"
             CATEGORY_NOTE -> "Catatan"
+            CATEGORY_IMAGE -> "Gambar"
             else -> "Teks"
         }
 
@@ -28,6 +38,7 @@ data class ClipItem(
         const val CATEGORY_EMAIL = "email"
         const val CATEGORY_CODE = "code"
         const val CATEGORY_NOTE = "note"
+        const val CATEGORY_IMAGE = "image"
 
         fun classify(text: String): String {
             val value = text.trim()

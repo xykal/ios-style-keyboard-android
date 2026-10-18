@@ -2,11 +2,13 @@ package com.ioskeyboard.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ClipDescription
 import android.content.Context
 import android.content.DialogInterface
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -113,7 +115,7 @@ class ClipboardActivity : AppCompatActivity() {
             "Semua" to "", "Disematkan" to ClipStore.FILTER_PINNED,
             "Teks" to ClipItem.CATEGORY_TEXT, "Link" to ClipItem.CATEGORY_LINK,
             "Email" to ClipItem.CATEGORY_EMAIL, "Catatan" to ClipItem.CATEGORY_NOTE,
-            "Kode" to ClipItem.CATEGORY_CODE
+            "Kode" to ClipItem.CATEGORY_CODE, "Gambar" to ClipItem.CATEGORY_IMAGE
         )
         categories.forEach { (label, value) ->
             val tab = TextView(this).apply {
@@ -203,19 +205,19 @@ class ClipboardActivity : AppCompatActivity() {
         header.addView(pin, LinearLayout.LayoutParams(dp(34), dp(30)))
         column.addView(header)
         val content = TextView(this).apply {
-            text = item.text
+            text = if (item.isImage) item.preview else item.text
             textSize = 14f
             setTextColor(ink)
             maxLines = 5
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, dp(5), 0, dp(8))
-            setOnClickListener { copy(item.text) }
-            setOnLongClickListener { showCategoryPicker(item); true }
+            setOnClickListener { copyItem(item) }
+            setOnLongClickListener { if (!item.isImage) showCategoryPicker(item); true }
         }
         column.addView(content)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val copy = actionButton("Salin") { copy(item.text) }
-        val category = actionButton("Kategori") { showCategoryPicker(item) }
+        val copy = actionButton(if (item.isImage) "Salin gambar" else "Salin") { copyItem(item) }
+        val category = actionButton(if (item.isImage) "Gambar" else "Kategori") { if (!item.isImage) showCategoryPicker(item) }
         val delete = actionButton("Hapus") { store.delete(item.id); refresh() }
         buttons.addView(copy, LinearLayout.LayoutParams(0, dp(35), 1f).apply { marginEnd = dp(5) })
         buttons.addView(category, LinearLayout.LayoutParams(0, dp(35), 1f).apply { marginEnd = dp(5) })
@@ -245,6 +247,21 @@ class ClipboardActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun copyItem(item: ClipItem) {
+        if (!item.isImage) {
+            copy(item.text)
+            return
+        }
+        val uri = store.imageUri(item)
+        if (uri == null) {
+            Toast.makeText(this, "File gambar tidak ditemukan", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clip = ClipData.newUri(contentResolver, "Gambar", uri)
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+        Toast.makeText(this, "Gambar disalin", Toast.LENGTH_SHORT).show()
+    }
+
     private fun copy(text: String) {
         (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Papan klip", text))
         Toast.makeText(this, "Disalin", Toast.LENGTH_SHORT).show()
@@ -258,7 +275,23 @@ class ClipboardActivity : AppCompatActivity() {
                 Toast.makeText(this, "Clipboard kosong", Toast.LENGTH_SHORT).show()
                 return
             }
-            val text = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+            if (isSensitiveClipboard(clip)) {
+                Toast.makeText(this, "Salinan sensitif tidak disimpan", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val item = clip.getItemAt(0)
+            val imageMime = (0 until clip.description.mimeTypeCount)
+                .map { clip.description.getMimeType(it) }
+                .firstOrNull { it.startsWith("image/") }
+                ?: item.uri?.let { contentResolver.getType(it) }?.takeIf { it.startsWith("image/") }
+            if (imageMime != null && item.uri != null) {
+                if (store.saveImage(item.uri!!, imageMime) != null) {
+                    Toast.makeText(this, "Gambar tersimpan di perangkat", Toast.LENGTH_SHORT).show()
+                    refresh()
+                } else Toast.makeText(this, "Gambar tidak didukung atau terlalu besar", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val text = item.coerceToText(this)?.toString().orEmpty()
             if (text.isBlank()) Toast.makeText(this, "Tidak ada teks yang bisa disimpan", Toast.LENGTH_SHORT).show()
             else {
                 store.save(text)
@@ -267,6 +300,10 @@ class ClipboardActivity : AppCompatActivity() {
             }
         } catch (_: Exception) { Toast.makeText(this, "Android membatasi akses clipboard ini", Toast.LENGTH_SHORT).show() }
     }
+
+    private fun isSensitiveClipboard(clip: ClipData): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            try { clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true } catch (_: Exception) { false }
 
     private fun confirmClear() {
         AlertDialog.Builder(this)

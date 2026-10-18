@@ -20,6 +20,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -127,11 +128,11 @@ class FloatingService : Service() {
             return
         }
         if (bubble != null) return
-        val view = TextView(this).apply {
-            text = "▤"
-            textSize = 24f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+        val view = ImageView(this).apply {
+            setImageResource(R.drawable.ic_clipboard)
+            imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(15), dp(15), dp(15), dp(15))
             contentDescription = "Papan klip mengambang"
             background = rounded(0xFF0A84FF.toInt(), dp(27).toFloat())
             elevation = dp(8).toFloat()
@@ -227,7 +228,8 @@ class FloatingService : Service() {
         val filters = listOf(
             "Semua" to "", "Disematkan" to ClipStore.FILTER_PINNED,
             "Link" to ClipItem.CATEGORY_LINK, "Email" to ClipItem.CATEGORY_EMAIL,
-            "Catatan" to ClipItem.CATEGORY_NOTE, "Kode" to ClipItem.CATEGORY_CODE
+            "Catatan" to ClipItem.CATEGORY_NOTE, "Kode" to ClipItem.CATEGORY_CODE,
+            "Gambar" to ClipItem.CATEGORY_IMAGE
         )
         filters.forEach { (label, filter) ->
             val chip = TextView(this).apply {
@@ -320,7 +322,7 @@ class FloatingService : Service() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(dp(3), dp(3), dp(5), dp(3))
                 setOnClickListener {
-                    KeyboardBridge.insertText(this@FloatingService, item.text)
+                    KeyboardBridge.insertClip(this@FloatingService, item)
                     removePanel()
                 }
             }
@@ -383,8 +385,10 @@ class FloatingService : Service() {
         val display = resources.displayMetrics
         val screenW = display.widthPixels
         val screenH = display.heightPixels
+        val requestedWidth = if (prefs.keyboardLayout == Prefs.LAYOUT_PC) screenW
+            else (screenW * prefs.floatingWidthPercent / 100).coerceAtLeast(dp(250))
         val params = WindowManager.LayoutParams(
-            (screenW * prefs.floatingWidthPercent / 100).coerceAtLeast(dp(250)),
+            requestedWidth.coerceAtMost(screenW),
             dp((292 * prefs.keyboardHeightPercent / 100).coerceIn(220, 420)),
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -467,7 +471,7 @@ class FloatingService : Service() {
                 else -> ime()?.onAction(action)
             }
         }
-        override fun onClipSelected(item: ClipItem) { ime()?.onClipSelected(item) ?: KeyboardBridge.insertText(this@FloatingService, item.text) }
+        override fun onClipSelected(item: ClipItem) { ime()?.onClipSelected(item) ?: KeyboardBridge.insertClip(this@FloatingService, item) }
         override fun onClipPinned(item: ClipItem) {
             clipStore.togglePinned(item.id)
             val category = if (overlayClipFilter == ClipStore.FILTER_PINNED) ClipStore.FILTER_PINNED else overlayClipFilter.ifBlank { null }

@@ -38,6 +38,14 @@ class KeyboardSurface @JvmOverloads constructor(
         val clip: ClipItem? = null
     )
 
+    private data class PcKey(
+        val label: String,
+        val kind: HitKind = HitKind.TEXT,
+        val value: String = label,
+        val secondary: String = "",
+        val units: Float = 1f
+    )
+
     private data class Palette(
         val background: Int,
         val key: Int,
@@ -171,9 +179,9 @@ class KeyboardSurface @JvmOverloads constructor(
         val h = when (MeasureSpec.getMode(heightMeasureSpec)) {
             MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
             MeasureSpec.AT_MOST -> min(target, MeasureSpec.getSize(heightMeasureSpec))
-            else -> target
+            else -> target.coerceAtLeast(dp(230))
         }
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), max(dp(230), h))
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), h)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -200,11 +208,11 @@ class KeyboardSurface @JvmOverloads constructor(
             overlayCloseBounds = RectF(card.right - dp(43), card.top, card.right, card.top + dp(27))
             p.color = colors.secondary
             canvas.drawRoundRect(RectF(w / 2 - dp(24), card.top + dp(5), w / 2 + dp(24), card.top + dp(8)), dp(2).toFloat(), dp(2).toFloat(), p)
-            drawText(canvas, "×", overlayCloseBounds.centerX(), overlayCloseBounds.centerY(), dp(20).toFloat(), colors.secondary, true)
+            drawIcon(canvas, "close", overlayCloseBounds, colors.secondary)
             hits += Hit(HitKind.ACTION, overlayCloseBounds, "CLOSE_FLOAT_KEYBOARD")
         }
 
-        val oneHand = if (overlay) 0 else prefs.oneHandMode
+        val oneHand = if (overlay || prefs.keyboardLayout == Prefs.LAYOUT_PC) 0 else prefs.oneHandMode
         val keyboardWidth = if (oneHand == 0) w else w * 0.78f
         val left = when {
             overlay -> dp(7).toFloat()
@@ -223,18 +231,22 @@ class KeyboardSurface @JvmOverloads constructor(
         val contentBottom = bottom - dp(3)
         val rowsTop = top + headerH + numberH + dp(3)
         val rowsHeight = contentBottom - rowsTop - bottomH - rowGap
-        val rowH = max(dp(34).toFloat(), (rowsHeight - 2 * rowGap) / 3f)
+        val rowH = ((rowsHeight - 2 * rowGap) / 3f).coerceAtLeast(dp(24).toFloat())
 
         drawHeader(canvas, left, right, top, headerH, colors)
 
         if (mode == Mode.KEYBOARD) {
-            var y = top + headerH
-            if (isNumberMode) {
-                drawNumberRow(canvas, left, right, y, numberH, gap, colors)
-                y += numberH + dp(3)
+            if (prefs.keyboardLayout == Prefs.LAYOUT_PC) {
+                drawPcKeyboard(canvas, left, right, top + headerH, contentBottom, colors)
+            } else {
+                var y = top + headerH
+                if (isNumberMode) {
+                    drawNumberRow(canvas, left, right, y, numberH, gap, colors)
+                    y += numberH + dp(3)
+                }
+                drawKeyboardRows(canvas, left, right, y, rowH, rowGap, gap, colors, symbols = false)
+                drawBottomRow(canvas, left, right, contentBottom - bottomH, bottomH, gap, colors, keyboard = true)
             }
-            drawKeyboardRows(canvas, left, right, y, rowH, rowGap, gap, colors, symbols = false)
-            drawBottomRow(canvas, left, right, contentBottom - bottomH, bottomH, gap, colors, keyboard = true)
         } else if (mode == Mode.SYMBOLS) {
             drawKeyboardRows(canvas, left, right, top + headerH + dp(4), rowH, rowGap, gap, colors, symbols = true)
             drawBottomRow(canvas, left, right, contentBottom - bottomH, bottomH, gap, colors, keyboard = false)
@@ -278,7 +290,7 @@ class KeyboardSurface @JvmOverloads constructor(
         val r = dp(13).toFloat()
         val toolRect = RectF(left + dp(5), y + dp(5), left + dp(43), y + h - dp(5))
         drawPill(canvas, toolRect, c.card, r)
-        drawText(canvas, "•••", toolRect.centerX(), toolRect.centerY(), dp(15).toFloat(), c.secondary, true)
+        drawIcon(canvas, "more", toolRect, c.secondary)
         hits += Hit(HitKind.ACTION, toolRect, "TOOLS")
 
         when (mode) {
@@ -288,25 +300,30 @@ class KeyboardSurface @JvmOverloads constructor(
                 val trRect = RectF(right - dp(42), y + dp(5), right - dp(3), y + h - dp(5))
                 drawPill(canvas, clipRect, c.card, r)
                 drawPill(canvas, trRect, c.card, r)
-                drawText(canvas, "▤", clipRect.centerX(), clipRect.centerY(), dp(17).toFloat(), c.text, true)
-                drawText(canvas, "文", trRect.centerX(), trRect.centerY(), dp(16).toFloat(), c.text, true)
+                drawIcon(canvas, "clipboard", clipRect, c.text)
+                drawIcon(canvas, "translate", trRect, c.text)
                 hits += Hit(HitKind.ACTION, clipRect, "CLIPBOARD")
                 hits += Hit(HitKind.ACTION, trRect, "TRANSLATE")
-                val candidates = if (suggestions.isNotEmpty()) suggestions else listOf("😊", "🌐", "⚙")
                 val candidateLeft = toolRect.right + dp(3)
                 val candidateRight = clipRect.left - dp(3)
                 val cellW = (candidateRight - candidateLeft) / 3f
-                candidates.take(3).forEachIndexed { index, word ->
+                val fallbackIcons = listOf("emoji", "language", "settings")
+                val fallbackActions = listOf("EMOJI", "LANGUAGE", "SETTINGS")
+                for (index in 0 until 3) {
                     val rect = RectF(candidateLeft + index * cellW, y + dp(4), candidateLeft + (index + 1) * cellW, y + h - dp(4))
                     if (index > 0) {
                         p.color = c.divider
                         p.strokeWidth = dp(1).toFloat()
                         canvas.drawLine(rect.left, rect.top + dp(8), rect.left, rect.bottom - dp(8), p)
                     }
-                    val label = if (suggestions.isNotEmpty()) word else when (index) { 0 -> "☺"; 1 -> "ID"; else -> "⚙" }
-                    drawText(canvas, label, rect.centerX(), rect.centerY(), dp(if (suggestions.isNotEmpty()) 15 else 13).toFloat(), c.text, false)
-                    if (suggestions.isNotEmpty()) hits += Hit(HitKind.CANDIDATE, rect, word)
-                    else hits += Hit(HitKind.ACTION, rect, when (index) { 0 -> "EMOJI"; 1 -> "LANGUAGE"; else -> "SETTINGS" })
+                    if (index < suggestions.size) {
+                        val word = suggestions[index]
+                        drawText(canvas, word, rect.centerX(), rect.centerY(), dp(15).toFloat(), c.text, false, maxWidth = rect.width() - dp(8))
+                        hits += Hit(HitKind.CANDIDATE, rect, word)
+                    } else {
+                        drawIcon(canvas, fallbackIcons[index], rect, c.secondary)
+                        hits += Hit(HitKind.ACTION, rect, fallbackActions[index])
+                    }
                 }
             }
             Mode.EMOJI -> {
@@ -315,8 +332,8 @@ class KeyboardSurface @JvmOverloads constructor(
                 val close = RectF(right - dp(42), y + dp(4), right - dp(3), y + h - dp(4))
                 drawPill(canvas, search, c.card, r)
                 drawPill(canvas, close, c.card, r)
-                drawText(canvas, "⌕", search.centerX(), search.centerY(), dp(20).toFloat(), c.text, true)
-                drawText(canvas, "×", close.centerX(), close.centerY(), dp(20).toFloat(), c.secondary, true)
+                drawIcon(canvas, "search", search, c.text)
+                drawIcon(canvas, "close", close, c.secondary)
                 hits += Hit(HitKind.ACTION, search, "EMOJI_SEARCH")
                 hits += Hit(HitKind.ACTION, close, "KEYBOARD")
             }
@@ -326,8 +343,8 @@ class KeyboardSurface @JvmOverloads constructor(
                 val close = RectF(right - dp(42), y + dp(4), right - dp(3), y + h - dp(4))
                 drawPill(canvas, search, c.card, r)
                 drawPill(canvas, close, c.card, r)
-                drawText(canvas, "⌕", search.centerX(), search.centerY(), dp(20).toFloat(), c.text, true)
-                drawText(canvas, "×", close.centerX(), close.centerY(), dp(20).toFloat(), c.secondary, true)
+                drawIcon(canvas, "search", search, c.text)
+                drawIcon(canvas, "close", close, c.secondary)
                 hits += Hit(HitKind.ACTION, search, "CLIPBOARD_HISTORY")
                 hits += Hit(HitKind.ACTION, close, "KEYBOARD")
             }
@@ -338,7 +355,7 @@ class KeyboardSurface @JvmOverloads constructor(
                 drawPill(canvas, target, c.card, r)
                 drawPill(canvas, close, c.card, r)
                 drawText(canvas, translationTarget.uppercase(), target.centerX(), target.centerY(), dp(12).toFloat(), c.accent, true)
-                drawText(canvas, "×", close.centerX(), close.centerY(), dp(20).toFloat(), c.secondary, true)
+                drawIcon(canvas, "close", close, c.secondary)
                 hits += Hit(HitKind.ACTION, target, "TRANSLATE_SWAP")
                 hits += Hit(HitKind.ACTION, close, "KEYBOARD")
             }
@@ -346,7 +363,7 @@ class KeyboardSurface @JvmOverloads constructor(
                 drawText(canvas, "Akses cepat", left + dp(54), y + h / 2, dp(14).toFloat(), c.text, true, Paint.Align.LEFT)
                 val close = RectF(right - dp(42), y + dp(4), right - dp(3), y + h - dp(4))
                 drawPill(canvas, close, c.card, r)
-                drawText(canvas, "×", close.centerX(), close.centerY(), dp(20).toFloat(), c.secondary, true)
+                drawIcon(canvas, "close", close, c.secondary)
                 hits += Hit(HitKind.ACTION, close, "KEYBOARD")
             }
         }
@@ -397,7 +414,8 @@ class KeyboardSurface @JvmOverloads constructor(
                     val rowWidth = wide * 2 + keyW * row.size + gap * (row.size + 1)
                     var x = left + (width - rowWidth) / 2f
                     val shiftRect = RectF(x, y, x + wide, y + rowH)
-                    drawKey(canvas, shiftRect, if (symbols) "=\\<" else "⇧", pressedMatches(HitKind.SHIFT, "shift"), true, c)
+                    drawKey(canvas, shiftRect, if (symbols) "=\\<" else "", pressedMatches(HitKind.SHIFT, "shift"), true, c)
+                    if (!symbols) drawIcon(canvas, "shift", shiftRect, c.text)
                     hits += if (symbols) Hit(HitKind.LAYOUT, shiftRect, "SYMBOL_PAGE") else Hit(HitKind.SHIFT, shiftRect, "SHIFT")
                     x += wide + gap
                     row.forEach { text ->
@@ -408,10 +426,92 @@ class KeyboardSurface @JvmOverloads constructor(
                         x += keyW + gap
                     }
                     val backRect = RectF(x, y, x + wide, y + rowH)
-                    drawKey(canvas, backRect, "⌫", pressedMatches(HitKind.BACKSPACE, "back"), true, c)
+                    drawKey(canvas, backRect, "", pressedMatches(HitKind.BACKSPACE, "back"), true, c)
+                    drawIcon(canvas, "backspace", backRect, c.text)
                     hits += Hit(HitKind.BACKSPACE, backRect)
                 }
             }
+        }
+    }
+
+    private fun drawPcKeyboard(canvas: Canvas, left: Float, right: Float, top: Float, bottom: Float, c: Palette) {
+        val rowGap = dp(3).toFloat()
+        val rows = listOf(
+            listOf(PcKey("Esc", HitKind.ACTION, "PC_KEY_ESCAPE", units = 1.15f)) +
+                (1..12).map { PcKey("F$it", HitKind.ACTION, "PC_KEY_F$it", units = 0.9f) },
+            listOf(
+                PcKey("`", secondary = "~"), PcKey("1", secondary = "!"),
+                PcKey("2", secondary = "@"), PcKey("3", secondary = "#"),
+                PcKey("4", secondary = 36.toChar().toString()), PcKey("5", secondary = "%"),
+                PcKey("6", secondary = "^"), PcKey("7", secondary = "&"),
+                PcKey("8", secondary = "*"), PcKey("9", secondary = "("),
+                PcKey("0", secondary = ")"), PcKey("-", secondary = "_"),
+                PcKey("=", secondary = "+"),
+                PcKey("⌫", HitKind.BACKSPACE, "PC_BACKSPACE", units = 1.55f)
+            ),
+            listOf(PcKey("Tab", HitKind.ACTION, "PC_KEY_TAB", units = 1.4f)) +
+                "qwertyuiop".map { PcKey(it.toString()) } +
+                listOf(PcKey("[", secondary = "{"), PcKey("]", secondary = "}"), PcKey(92.toChar().toString(), secondary = "|", units = 1.15f)),
+            listOf(PcKey("Caps", HitKind.ACTION, "PC_CAPS_LOCK", units = 1.55f)) +
+                "asdfghjkl".map { PcKey(it.toString()) } +
+                listOf(PcKey(";", secondary = ":"), PcKey(39.toChar().toString(), secondary = 34.toChar().toString()), PcKey("Enter", HitKind.ENTER, "PC_ENTER", units = 1.5f)),
+            listOf(PcKey("Shift", HitKind.SHIFT, "pc_shift_left", units = 1.85f)) +
+                "zxcvbnm".map { PcKey(it.toString()) } +
+                listOf(PcKey(",", secondary = "<"), PcKey(".", secondary = ">"), PcKey("/", secondary = "?"), PcKey("Shift", HitKind.SHIFT, "pc_shift_right", units = 1.85f)),
+            listOf(
+                PcKey("Ctrl", HitKind.ACTION, "PC_MOD_CTRL", units = 1.35f),
+                PcKey("Fn", HitKind.ACTION, "PC_KEY_FUNCTION", units = 1.0f),
+                PcKey("Alt", HitKind.ACTION, "PC_MOD_ALT", units = 1.05f),
+                PcKey("Win", HitKind.ACTION, "PC_MOD_META", units = 1.15f),
+                PcKey("Space", HitKind.SPACE, "", units = 3.7f),
+                PcKey("Alt", HitKind.ACTION, "PC_MOD_ALT", units = 1.05f),
+                PcKey("Ctrl", HitKind.ACTION, "PC_MOD_CTRL", units = 1.35f),
+                PcKey("←", HitKind.ACTION, "PC_KEY_DPAD_LEFT", units = 0.9f),
+                PcKey("↓", HitKind.ACTION, "PC_KEY_DPAD_DOWN", units = 0.9f),
+                PcKey("↑", HitKind.ACTION, "PC_KEY_DPAD_UP", units = 0.9f),
+                PcKey("→", HitKind.ACTION, "PC_KEY_DPAD_RIGHT", units = 0.9f)
+            )
+        )
+        val availableHeight = (bottom - top - rowGap * (rows.size - 1)).coerceAtLeast(dp(6).toFloat())
+        val rowH = availableHeight / rows.size
+        rows.forEachIndexed { index, row ->
+            val y = top + index * (rowH + rowGap)
+            drawPcRow(canvas, row, left, right, y, rowH, c, index)
+        }
+    }
+
+    private fun drawPcRow(canvas: Canvas, keys: List<PcKey>, left: Float, right: Float, y: Float, h: Float, c: Palette, rowIndex: Int) {
+        val gap = dp(if (rowIndex == 0) 2 else 3).toFloat()
+        val totalUnits = keys.sumOf { it.units.toDouble() }.toFloat()
+        val unit = (right - left - gap * (keys.size - 1)) / totalUnits
+        var x = left
+        keys.forEach { key ->
+            val w = unit * key.units
+            val rect = RectF(x, y, x + w, y + h)
+            val letter = key.label.length == 1 && key.label[0].isLetter()
+            val display = when {
+                letter && (shift || capsLock) -> key.label.uppercase()
+                !letter && shift && key.secondary.isNotEmpty() -> key.secondary
+                else -> key.label
+            }
+            val value = when {
+                key.kind != HitKind.TEXT -> key.value
+                letter -> key.label.lowercase()
+                shift && key.secondary.isNotEmpty() -> key.secondary
+                else -> key.value
+            }
+            val pressedValue = if (key.kind == HitKind.SPACE) "" else value
+            val special = key.kind != HitKind.TEXT && key.kind != HitKind.SPACE
+            val font = when (rowIndex) {
+                0 -> dp(9).toFloat()
+                5 -> if (key.label.length > 2) dp(8).toFloat() else dp(13).toFloat()
+                else -> if (key.label.length > 1) dp(10).toFloat() else dp(15).toFloat()
+            }
+            drawKey(canvas, rect, if (key.kind == HitKind.BACKSPACE) "" else display, pressedMatches(key.kind, pressedValue), special, c, radius = dp(4).toFloat(), font = font)
+            if (key.kind == HitKind.BACKSPACE) drawIcon(canvas, "backspace", rect, c.text)
+            hits += if (key.kind == HitKind.SPACE) Hit(HitKind.SPACE, rect)
+            else Hit(key.kind, rect, value)
+            x += w + gap
         }
     }
 
@@ -420,13 +520,13 @@ class KeyboardSurface @JvmOverloads constructor(
         val unit = (right - left - gap * 6) / totalUnits
         var x = left
         val entries = if (keyboard) listOf(
-            Triple("123", 1.25f, "LAYOUT_SYMBOLS"), Triple("☺", 0.85f, "EMOJI"),
+            Triple("123", 1.25f, "LAYOUT_SYMBOLS"), Triple("", 0.85f, "EMOJI"),
             Triple(",", 0.70f, "TEXT_COMMA"), Triple(languageLabel, 3.20f, "SPACE"),
-            Triple(".", 0.70f, "TEXT_PERIOD"), Triple("🌐", 0.85f, "LANGUAGE"), Triple("↵", 1.25f, "ENTER")
+            Triple(".", 0.70f, "TEXT_PERIOD"), Triple("", 0.85f, "LANGUAGE"), Triple("", 1.25f, "ENTER")
         ) else listOf(
-            Triple("ABC", 1.25f, "KEYBOARD"), Triple("☺", 0.85f, "EMOJI"),
+            Triple("ABC", 1.25f, "KEYBOARD"), Triple("", 0.85f, "EMOJI"),
             Triple(",", 0.70f, "TEXT_COMMA"), Triple(languageLabel, 3.20f, "SPACE"),
-            Triple(".", 0.70f, "TEXT_PERIOD"), Triple("🌐", 0.85f, "LANGUAGE"), Triple("↵", 1.25f, "ENTER")
+            Triple(".", 0.70f, "TEXT_PERIOD"), Triple("", 0.85f, "LANGUAGE"), Triple("", 1.25f, "ENTER")
         )
         entries.forEachIndexed { index, (label, units, action) ->
             val w = units * unit
@@ -436,11 +536,17 @@ class KeyboardSurface @JvmOverloads constructor(
                 3 -> dp(12).toFloat(); 0 -> dp(13).toFloat(); else -> dp(18).toFloat()
             })
             when (action) {
+                "EMOJI" -> drawIcon(canvas, "emoji", rect, c.text)
+                "LANGUAGE" -> drawIcon(canvas, "language", rect, c.text)
+                "ENTER" -> drawIcon(canvas, "enter", rect, c.text)
+            }
+            when (action) {
                 "SPACE" -> hits += Hit(HitKind.SPACE, rect)
                 "ENTER" -> hits += Hit(HitKind.ENTER, rect)
                 "LANGUAGE" -> hits += Hit(HitKind.ACTION, rect, action)
                 "EMOJI" -> hits += Hit(HitKind.ACTION, rect, action)
                 "LAYOUT_SYMBOLS" -> hits += Hit(HitKind.LAYOUT, rect, action)
+                "KEYBOARD" -> hits += Hit(HitKind.ACTION, rect, action)
                 "TEXT_COMMA" -> hits += Hit(HitKind.TEXT, rect, ",")
                 "TEXT_PERIOD" -> hits += Hit(HitKind.TEXT, rect, ".")
                 else -> Unit
@@ -482,7 +588,7 @@ class KeyboardSurface @JvmOverloads constructor(
     }
 
     private fun drawEmojiPanel(canvas: Canvas, left: Float, right: Float, top: Float, bottom: Float, c: Palette) {
-        val categories = listOf("☺", "♥", "🐻", "◉", "♬", "✈")
+        val categories = listOf("Wajah", "Hati", "Hewan", "Makan", "Aktivitas", "Tempat")
         val tabsH = dp(28).toFloat()
         val tabGap = dp(4).toFloat()
         val tabW = (right - left - tabGap * (categories.size - 1) - dp(8)) / categories.size
@@ -490,7 +596,7 @@ class KeyboardSurface @JvmOverloads constructor(
             val x = left + dp(4) + i * (tabW + tabGap)
             val rect = RectF(x, top, x + tabW, top + tabsH)
             drawPill(canvas, rect, if (emojiCategory == i) c.accent else c.card, dp(9).toFloat())
-            drawText(canvas, label, rect.centerX(), rect.centerY(), dp(15).toFloat(), if (emojiCategory == i) 0xFFFFFFFF.toInt() else c.text, true)
+            drawText(canvas, label, rect.centerX(), rect.centerY(), dp(10).toFloat(), if (emojiCategory == i) 0xFFFFFFFF.toInt() else c.text, true)
             hits += Hit(HitKind.CATEGORY, rect, "EMOJI_CATEGORY", i.toString())
         }
         val rows = listOf(
@@ -522,8 +628,8 @@ class KeyboardSurface @JvmOverloads constructor(
     }
 
     private fun drawClipboardPanel(canvas: Canvas, left: Float, right: Float, top: Float, bottom: Float, c: Palette) {
-        val labels = listOf("Semua", "Pin", "Link", "Email", "Kode")
-        val filters = listOf("", ClipStoreFilter.PINNED, ClipItem.CATEGORY_LINK, ClipItem.CATEGORY_EMAIL, ClipItem.CATEGORY_CODE)
+        val labels = listOf("Semua", "Pin", "Link", "Email", "Kode", "Gambar")
+        val filters = listOf("", ClipStoreFilter.PINNED, ClipItem.CATEGORY_LINK, ClipItem.CATEGORY_EMAIL, ClipItem.CATEGORY_CODE, ClipItem.CATEGORY_IMAGE)
         val tabsH = dp(28).toFloat()
         val gap = dp(4).toFloat()
         val tabW = (right - left - gap * (labels.size - 1) - dp(8)) / labels.size
@@ -586,15 +692,25 @@ class KeyboardSurface @JvmOverloads constructor(
     }
 
     private fun drawToolsPanel(canvas: Canvas, left: Float, right: Float, top: Float, bottom: Float, c: Palette) {
-        val tools = listOf(
-            listOf("☺", "Emoji", "EMOJI"), listOf("▤", "Papan klip", "CLIPBOARD"), listOf("文", "Terjemah", "TRANSLATE"),
-            listOf("⤢", "Terapung", "FLOAT_KEYBOARD"), listOf("◉", "Satu tangan", "ONE_HAND"), listOf("⚙", "Pengaturan", "SETTINGS"),
-            listOf("⌨", "Pilih bahasa", "LANGUAGE"), listOf("⌄", "Sembunyikan", "HIDE_KEYBOARD")
+        val layoutLabel = if (prefs.keyboardLayout == Prefs.LAYOUT_PC) "Mode: iOS" else "Mode: PC"
+        val baseTools = listOf(
+            listOf("emoji", "Emoji", "EMOJI"), listOf("clipboard", "Papan klip", "CLIPBOARD"),
+            listOf("translate", "Terjemah", "TRANSLATE"), listOf("floating", "Mengambang", "FLOAT_KEYBOARD"),
+            listOf("settings", "Pengaturan", "SETTINGS"), listOf("language", "Bahasa", "LANGUAGE"),
+            listOf("keyboard", layoutLabel, "LAYOUT_TOGGLE"), listOf("keyboard", "Satu tangan", "ONE_HAND"),
+            listOf("close", "Sembunyikan", "HIDE_KEYBOARD")
         )
+        val pcNavigation = if (prefs.keyboardLayout == Prefs.LAYOUT_PC) listOf(
+            listOf("keyboard", "Home", "PC_KEY_HOME"), listOf("keyboard", "End", "PC_KEY_END"),
+            listOf("keyboard", "Page Up", "PC_KEY_PAGE_UP"), listOf("keyboard", "Page Down", "PC_KEY_PAGE_DOWN"),
+            listOf("keyboard", "Insert", "PC_KEY_INSERT"), listOf("keyboard", "Delete", "PC_KEY_FORWARD_DEL")
+        ) else emptyList()
+        val tools = baseTools + pcNavigation
         val cols = 4
+        val rowCount = (tools.size + cols - 1) / cols
         val gap = dp(7).toFloat()
         val cellW = (right - left - gap * (cols - 1) - dp(8)) / cols
-        val cellH = min(dp(51).toFloat(), (bottom - top - gap) / 2f)
+        val cellH = min(dp(51).toFloat(), (bottom - top - gap * (rowCount - 1)) / rowCount)
         tools.forEachIndexed { index, item ->
             val row = index / cols
             val col = index % cols
@@ -602,8 +718,8 @@ class KeyboardSurface @JvmOverloads constructor(
             val y = top + row * (cellH + gap)
             val rect = RectF(x, y, x + cellW, y + cellH)
             drawPill(canvas, rect, c.card, dp(11).toFloat())
-            drawText(canvas, item[0], rect.centerX(), rect.top + cellH * 0.38f, dp(19).toFloat(), c.accent, true)
-            drawText(canvas, item[1], rect.centerX(), rect.top + cellH * 0.76f, dp(9).toFloat(), c.text, false)
+            drawIcon(canvas, item[0], RectF(rect.left + dp(4), rect.top + dp(2), rect.right - dp(4), rect.top + cellH * 0.58f), c.accent)
+            drawText(canvas, item[1], rect.centerX(), rect.top + cellH * 0.79f, dp(9).toFloat(), c.text, false, maxWidth = rect.width() - dp(6))
             hits += Hit(HitKind.ACTION, rect, item[2])
         }
     }
@@ -655,13 +771,146 @@ class KeyboardSurface @JvmOverloads constructor(
         val keyRadius = if (radius == dp(5).toFloat()) dp(prefs.keyCornerRadiusDp).toFloat() else radius
         canvas.drawRoundRect(rect, keyRadius, keyRadius, p)
         p.clearShadowLayer()
-        val ink = if (label == "⇧" || label == "⌫" || label == "=\\<") c.text else c.text
-        drawText(canvas, label, rect.centerX(), rect.centerY(), font * prefs.keyFontSizePercent / 100f, ink, false)
+        drawText(canvas, label, rect.centerX(), rect.centerY(), font * prefs.keyFontSizePercent / 100f, c.text, false, maxWidth = (rect.width() - dp(6)).coerceAtLeast(dp(4).toFloat()))
     }
 
     private fun drawPill(canvas: Canvas, rect: RectF, color: Int, radius: Float) {
         p.color = color
         canvas.drawRoundRect(rect, radius, radius, p)
+    }
+
+    /** Small monochrome line icons keep controls crisp and avoid emoji-font substitutions. */
+    private fun drawIcon(canvas: Canvas, name: String, bounds: RectF, color: Int) {
+        val oldStyle = p.style
+        val oldStroke = p.strokeWidth
+        val oldCap = p.strokeCap
+        val oldJoin = p.strokeJoin
+        val oldColor = p.color
+        val cx = bounds.centerX()
+        val cy = bounds.centerY()
+        val size = min(bounds.width(), bounds.height()) * 0.56f
+        val half = size / 2f
+        p.color = color
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dp(1.7f).toFloat()
+        p.strokeCap = Paint.Cap.ROUND
+        p.strokeJoin = Paint.Join.ROUND
+        when (name) {
+            "clipboard" -> {
+                canvas.drawRoundRect(RectF(cx - half * 0.72f, cy - half * 0.62f, cx + half * 0.72f, cy + half), dp(2).toFloat(), dp(2).toFloat(), p)
+                canvas.drawRoundRect(RectF(cx - half * 0.32f, cy - half * 0.82f, cx + half * 0.32f, cy - half * 0.48f), dp(2).toFloat(), dp(2).toFloat(), p)
+                canvas.drawLine(cx - half * 0.42f, cy - half * 0.1f, cx + half * 0.42f, cy - half * 0.1f, p)
+                canvas.drawLine(cx - half * 0.42f, cy + half * 0.2f, cx + half * 0.42f, cy + half * 0.2f, p)
+            }
+            "search" -> {
+                canvas.drawCircle(cx - half * 0.08f, cy - half * 0.08f, half * 0.56f, p)
+                canvas.drawLine(cx + half * 0.32f, cy + half * 0.32f, cx + half * 0.78f, cy + half * 0.78f, p)
+            }
+            "close" -> {
+                canvas.drawLine(cx - half * 0.48f, cy - half * 0.48f, cx + half * 0.48f, cy + half * 0.48f, p)
+                canvas.drawLine(cx + half * 0.48f, cy - half * 0.48f, cx - half * 0.48f, cy + half * 0.48f, p)
+            }
+            "emoji" -> {
+                canvas.drawCircle(cx, cy, half * 0.72f, p)
+                p.style = Paint.Style.FILL
+                canvas.drawCircle(cx - half * 0.25f, cy - half * 0.16f, dp(1.3f).toFloat(), p)
+                canvas.drawCircle(cx + half * 0.25f, cy - half * 0.16f, dp(1.3f).toFloat(), p)
+                p.style = Paint.Style.STROKE
+                canvas.drawArc(RectF(cx - half * 0.34f, cy - half * 0.1f, cx + half * 0.34f, cy + half * 0.48f), 15f, 150f, false, p)
+            }
+            "language" -> {
+                canvas.drawCircle(cx, cy, half * 0.74f, p)
+                canvas.drawOval(RectF(cx - half * 0.34f, cy - half * 0.72f, cx + half * 0.34f, cy + half * 0.72f), p)
+                canvas.drawLine(cx - half * 0.68f, cy, cx + half * 0.68f, cy, p)
+                canvas.drawArc(RectF(cx - half * 0.68f, cy - half * 0.32f, cx + half * 0.68f, cy + half * 0.32f), 0f, 180f, false, p)
+            }
+            "translate" -> {
+                p.style = Paint.Style.FILL
+                drawText(canvas, "A", cx - half * 0.35f, cy, dp(11).toFloat(), color, true)
+                drawText(canvas, "文", cx + half * 0.35f, cy, dp(10).toFloat(), color, true)
+            }
+            "settings" -> {
+                canvas.drawCircle(cx, cy, half * 0.28f, p)
+                canvas.drawCircle(cx, cy, half * 0.63f, p)
+                for (i in 0 until 8) {
+                    val angle = Math.toRadians(i * 45.0)
+                    val x1 = cx + kotlin.math.cos(angle).toFloat() * half * 0.68f
+                    val y1 = cy + kotlin.math.sin(angle).toFloat() * half * 0.68f
+                    val x2 = cx + kotlin.math.cos(angle).toFloat() * half * 0.9f
+                    val y2 = cy + kotlin.math.sin(angle).toFloat() * half * 0.9f
+                    canvas.drawLine(x1, y1, x2, y2, p)
+                }
+            }
+            "keyboard" -> {
+                val keyRect = RectF(cx - half * 0.92f, cy - half * 0.58f, cx + half * 0.92f, cy + half * 0.58f)
+                canvas.drawRoundRect(keyRect, dp(3).toFloat(), dp(3).toFloat(), p)
+                for (row in 0..1) for (col in 0..4) {
+                    val x = keyRect.left + half * (0.28f + col * 0.29f)
+                    val y = keyRect.top + half * (0.3f + row * 0.38f)
+                    canvas.drawCircle(x, y, dp(0.65f).toFloat(), p)
+                }
+                canvas.drawLine(cx - half * 0.35f, cy + half * 0.38f, cx + half * 0.35f, cy + half * 0.38f, p)
+            }
+            "floating" -> {
+                canvas.drawRoundRect(RectF(cx - half * 0.78f, cy - half * 0.62f, cx + half * 0.78f, cy + half * 0.62f), dp(3).toFloat(), dp(3).toFloat(), p)
+                val path = Path().apply {
+                    moveTo(cx - half * 0.25f, cy + half * 0.28f)
+                    lineTo(cx + half * 0.36f, cy - half * 0.32f)
+                    lineTo(cx + half * 0.08f, cy - half * 0.32f)
+                    moveTo(cx + half * 0.36f, cy - half * 0.32f)
+                    lineTo(cx + half * 0.36f, cy - half * 0.03f)
+                }
+                canvas.drawPath(path, p)
+            }
+            "backspace" -> {
+                val path = Path().apply {
+                    moveTo(cx - half * 0.82f, cy)
+                    lineTo(cx - half * 0.34f, cy - half * 0.55f)
+                    lineTo(cx + half * 0.78f, cy - half * 0.55f)
+                    lineTo(cx + half * 0.78f, cy + half * 0.55f)
+                    lineTo(cx - half * 0.34f, cy + half * 0.55f)
+                    close()
+                    moveTo(cx - half * 0.1f, cy - half * 0.22f)
+                    lineTo(cx + half * 0.34f, cy + half * 0.22f)
+                    moveTo(cx + half * 0.34f, cy - half * 0.22f)
+                    lineTo(cx - half * 0.1f, cy + half * 0.22f)
+                }
+                canvas.drawPath(path, p)
+            }
+            "shift" -> {
+                val path = Path().apply {
+                    moveTo(cx, cy - half * 0.78f)
+                    lineTo(cx - half * 0.62f, cy - half * 0.05f)
+                    lineTo(cx - half * 0.28f, cy - half * 0.05f)
+                    lineTo(cx - half * 0.28f, cy + half * 0.58f)
+                    lineTo(cx + half * 0.28f, cy + half * 0.58f)
+                    lineTo(cx + half * 0.28f, cy - half * 0.05f)
+                    lineTo(cx + half * 0.62f, cy - half * 0.05f)
+                    close()
+                }
+                canvas.drawPath(path, p)
+            }
+            "enter" -> {
+                val path = Path().apply {
+                    moveTo(cx + half * 0.6f, cy - half * 0.45f)
+                    lineTo(cx + half * 0.6f, cy + half * 0.05f)
+                    lineTo(cx - half * 0.35f, cy + half * 0.05f)
+                    lineTo(cx - half * 0.08f, cy - half * 0.22f)
+                    moveTo(cx - half * 0.35f, cy + half * 0.05f)
+                    lineTo(cx - half * 0.08f, cy + half * 0.32f)
+                }
+                canvas.drawPath(path, p)
+            }
+            "more" -> {
+                p.style = Paint.Style.FILL
+                for (i in -1..1) canvas.drawCircle(cx + i * half * 0.52f, cy, dp(1.5f).toFloat(), p)
+            }
+        }
+        p.style = oldStyle
+        p.strokeWidth = oldStroke
+        p.strokeCap = oldCap
+        p.strokeJoin = oldJoin
+        p.color = oldColor
     }
 
     private fun drawText(
@@ -775,7 +1024,7 @@ class KeyboardSurface @JvmOverloads constructor(
                     invalidate()
                     return true
                 }
-                if (mode == Mode.KEYBOARD && prefs.swipeTyping && pressed?.kind == HitKind.TEXT && !longPressHandled) {
+                if (mode == Mode.KEYBOARD && prefs.keyboardLayout == Prefs.LAYOUT_IOS && prefs.swipeTyping && pressed?.kind == HitKind.TEXT && !longPressHandled) {
                     if (!isSwipe && sqrt(dx * dx + dy * dy) > dp(18)) isSwipe = true
                     if (isSwipe) {
                         if (swipePoints.isEmpty() || distance(swipePoints.last(), event.x, event.y) > dp(4)) {

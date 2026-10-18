@@ -81,6 +81,14 @@ class DictionaryEngine private constructor(context: Context) {
             .toList()
     }
 
+    /** Small offline context hints for common next-word positions; no typed text leaves the device. */
+    fun suggestNext(previousWord: String, language: String, limit: Int = 3): List<String> {
+        val key = previousWord.trim().lowercase(Locale.ROOT)
+        if (key.isBlank()) return emptyList()
+        val source = if (language == LANG_EN) NEXT_EN else NEXT_ID
+        return source[key].orEmpty().take(limit)
+    }
+
     /** One-edit keyboard typo correction, using hash-set membership rather than scanning the corpus. */
     fun correctOneEdit(input: String, language: String): String? {
         val d = data ?: return null
@@ -200,6 +208,34 @@ class DictionaryEngine private constructor(context: Context) {
     companion object {
         const val LANG_ID = "id"
         const val LANG_EN = "en"
+
+        private val NEXT_ID = mapOf(
+            "aku" to listOf("ingin", "mau", "bisa", "sudah", "tidak"),
+            "saya" to listOf("ingin", "akan", "bisa", "sudah", "tidak"),
+            "kamu" to listOf("bisa", "mau", "akan", "sudah", "tidak"),
+            "anda" to listOf("dapat", "bisa", "akan", "sudah", "tidak"),
+            "yang" to listOf("bisa", "ada", "akan", "lebih", "sudah"),
+            "tidak" to listOf("bisa", "ada", "akan", "perlu", "tahu"),
+            "terima" to listOf("kasih"),
+            "selamat" to listOf("pagi", "siang", "sore", "malam", "datang"),
+            "apa" to listOf("kabar", "yang", "saja", "itu", "ini"),
+            "di" to listOf("sini", "sana", "dalam", "atas", "bawah"),
+            "ke" to listOf("rumah", "sana", "depan", "kantor", "kota"),
+            "untuk" to listOf("kamu", "saya", "kita", "membuat", "itu")
+        )
+        private val NEXT_EN = mapOf(
+            "i" to listOf("am", "have", "will", "think", "can"),
+            "you" to listOf("are", "can", "will", "have", "should"),
+            "we" to listOf("can", "are", "will", "have", "need"),
+            "the" to listOf("best", "same", "first", "new", "other"),
+            "thank" to listOf("you"),
+            "how" to listOf("are", "do", "can", "much", "about"),
+            "please" to listOf("let", "send", "help", "and", "confirm"),
+            "to" to listOf("the", "be", "get", "do", "make"),
+            "good" to listOf("morning", "afternoon", "evening", "night", "luck"),
+            "not" to listOf("sure", "available", "working", "ready", "yet")
+        )
+
         @Volatile private var instance: DictionaryEngine? = null
         fun get(context: Context): DictionaryEngine = instance ?: synchronized(this) {
             instance ?: DictionaryEngine(context).also { instance = it }

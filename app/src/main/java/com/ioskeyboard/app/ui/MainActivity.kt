@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -71,12 +72,12 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(root)
         setContentView(scroll)
 
-        val mark = TextView(this).apply {
-            text = "⌨"
-            textSize = 27f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+        val mark = ImageView(this).apply {
+            setImageResource(R.drawable.ic_keyboard)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(13), dp(13), dp(13), dp(13))
             background = rounded(blue, dp(17).toFloat())
+            contentDescription = "Ikon keyboard"
         }
         root.addView(mark, LinearLayout.LayoutParams(dp(58), dp(58)).apply { bottomMargin = dp(16) })
         addText("iOS Keyboard", 30f, ink, true)
@@ -126,10 +127,10 @@ class MainActivity : AppCompatActivity() {
         root.addView(edit, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) })
 
         addText("FITUR UTAMA", 11f, muted, true, dp(22))
-        addFeatureCard(root, "▤", "Papan klip tersimpan", "Cari, sematkan, dan pakai lagi teks yang pernah disalin.") {
+        addFeatureCard(root, R.drawable.ic_clipboard, "Papan klip tersimpan", "Cari, sematkan, dan pakai lagi teks atau gambar yang pernah disalin.") {
             startActivity(Intent(this, ClipboardActivity::class.java))
         }
-        addFeatureCard(root, "⤢", "Panel mengambang", "Buka papan klip atau keyboard sebagai panel yang bisa digeser.") {
+        addFeatureCard(root, R.drawable.ic_float, "Panel mengambang", "Buka papan klip atau keyboard sebagai panel yang bisa digeser.") {
             if (Settings.canDrawOverlays(this)) {
                 prefs.floatingBubbleEnabled = true
                 FloatingService.startClipboard(this)
@@ -139,7 +140,7 @@ class MainActivity : AppCompatActivity() {
                 requestOverlayPermission()
             }
         }
-        addFeatureCard(root, "⚙", "Atur keyboard", "Bahasa, swipe, koreksi, getar, suara, tema, dan tinggi tombol.") {
+        addFeatureCard(root, R.drawable.ic_settings, "Atur keyboard", "Mode iOS atau QWERTY PC, saran, koreksi, getar, tema, dan ukuran tombol.") {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
@@ -149,7 +150,7 @@ class MainActivity : AppCompatActivity() {
             setCardBackgroundColor(0xFFEAF3FF.toInt())
         }
         val privacyText = TextView(this).apply {
-            text = "Privasi: prediksi, swipe, dan riwayat clipboard disimpan di perangkat. Internet hanya dipakai saat kamu menekan Terjemahkan; teks yang dipilih dikirim ke layanan terjemahan."
+            text = "Privasi: prediksi, swipe, dan riwayat clipboard diproses di perangkat; salinan sensitif diabaikan dan database tidak masuk Android Backup. Keyboard tidak menyimpan sandi—gunakan Android Autofill/password manager. Internet hanya dipakai saat kamu meminta terjemahan."
             textSize = 12f
             setTextColor(0xFF31577C.toInt())
             setPadding(dp(14), dp(13), dp(14), dp(13))
@@ -157,7 +158,7 @@ class MainActivity : AppCompatActivity() {
         }
         privacy.addView(privacyText)
         root.addView(privacy, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
-        addText("Tip: riwayat clipboard mulai menangkap teks saat keyboard aktif. Item yang disematkan tidak ikut terhapus saat membersihkan riwayat.", 12f, muted, false, dp(14))
+        addText("Tip: riwayat mulai menangkap teks dan gambar saat keyboard aktif. Gambar dibatasi ukuran penyimpanan; item yang disematkan dipertahankan saat membersihkan riwayat.", 12f, muted, false, dp(14))
     }
 
     private fun addStep(parent: LinearLayout, number: String, title: String, detail: String, done: Boolean) {
@@ -179,7 +180,7 @@ class MainActivity : AppCompatActivity() {
         parent.addView(row)
     }
 
-    private fun addFeatureCard(parent: LinearLayout, icon: String, title: String, detail: String, click: () -> Unit) {
+    private fun addFeatureCard(parent: LinearLayout, icon: Int, title: String, detail: String, click: () -> Unit) {
         val card = MaterialCardView(this).apply {
             radius = dp(14).toFloat()
             cardElevation = dp(1).toFloat()
@@ -191,7 +192,13 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { click() }
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(13), dp(11), dp(12), dp(11)) }
-        val badge = TextView(this).apply { text = icon; textSize = 20f; gravity = Gravity.CENTER; setTextColor(blue); background = rounded(0xFFEAF3FF.toInt(), dp(12).toFloat()) }
+        val badge = ImageView(this).apply {
+            setImageResource(icon)
+            imageTintList = android.content.res.ColorStateList.valueOf(blue)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(0xFFEAF3FF.toInt(), dp(12).toFloat())
+            contentDescription = title
+        }
         row.addView(badge, LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(12) })
         val copy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         copy.addView(TextView(this).apply { text = title; textSize = 14f; setTypeface(typeface, Typeface.BOLD); setTextColor(ink) })
