@@ -37,7 +37,9 @@ Release memakai R8 (minify dan shrink resources aktif). Keystore release dibaca 
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-Workflow memakai keystore signing yang sudah ada; jangan menggantinya dengan keystore baru karena pembaruan aplikasi harus memakai identitas signing yang sama. Kunci tersebut bukan Play App Signing: untuk distribusi melalui Google Play, AAB tetap harus diunggah melalui Play Console dan Play App Signing dikonfigurasi di sana. Simpan backup JKS dan kredensial secara terpisah dan aman.
+Workflow memakai keystore signing yang sudah ada; jangan menggantinya dengan keystore baru karena pembaruan aplikasi harus memakai identitas signing yang sama. Kunci tersebut bukan Play App Signing. **AAB bertanda tangan ini belum siap dikirim ke Google Play:** proyek masih menargetkan API 34, sementara mulai 31 Agustus 2026 Google Play mewajibkan API 36 untuk pengajuan aplikasi baru dan update. Jika tujuanmu Play Store, target API perlu dinaikkan dan diuji dulu, lalu AAB diunggah lewat Play Console. Simpan backup JKS dan kredensial secara terpisah dan aman.
+
+Kebijakan target API: [Google Play Console Help](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en).
 
 ## Sumber kamus
 
