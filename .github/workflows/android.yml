@@ -32,13 +32,16 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Prepare optional release keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::notice::No release keystore secret; release will use the debug signing key for testing only."
+            exit 0
+          fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-keyboard-release.jks"
           echo "KEYSTORE_FILE=$RUNNER_TEMP/ios-keyboard-release.jks" >> "$GITHUB_ENV"
           echo "KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"

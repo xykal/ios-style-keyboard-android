@@ -39,7 +39,7 @@ Tanpa keystore pribadi, varian release ditandatangani dengan debug key agar muda
 
 ## Build di GitHub Actions
 
-Workflow `.github/workflows/android.yml` otomatis build APK debug dan release pada push, pull request, atau tombol **Run workflow**. Hasilnya tersedia di **Actions → workflow run → Artifacts** selama 14 hari.
+Workflow `.github/workflows/android.yml` otomatis build APK debug dan release pada push, pull request, atau tombol **Run workflow**. Hasilnya tersedia di **Actions → workflow run → Artifacts** selama 14 hari. Push tag versi seperti `v1.0.0` menjalankan build yang sama dan membuat **Draft Release** dengan kedua APK sebagai lampiran; draft bisa ditinjau sebelum dipublikasikan.
 
 Untuk menandatangani release dengan kunci sendiri, buat GitHub Actions secrets berikut:
 
