@@ -42,7 +42,7 @@ class FloatingService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var prefs: Prefs
     private lateinit var clipStore: ClipStore
-    private var bubble: TextView? = null
+    private var bubble: ImageView? = null
     private var panel: View? = null
     private var panelParams: WindowManager.LayoutParams? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
