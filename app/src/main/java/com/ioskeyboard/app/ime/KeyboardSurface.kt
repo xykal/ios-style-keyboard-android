@@ -354,7 +354,7 @@ class KeyboardSurface @JvmOverloads constructor(
                 val close = RectF(right - dp(42), y + dp(4), right - dp(3), y + h - dp(4))
                 drawPill(canvas, target, c.card, r)
                 drawPill(canvas, close, c.card, r)
-                drawText(canvas, translationTarget.uppercase(), target.centerX(), target.centerY(), dp(12).toFloat(), c.accent, true)
+                drawText(canvas, translationTarget.substringBefore('-').uppercase(), target.centerX(), target.centerY(), dp(12).toFloat(), c.accent, true)
                 drawIcon(canvas, "close", close, c.secondary)
                 hits += Hit(HitKind.ACTION, target, "TRANSLATE_SWAP")
                 hits += Hit(HitKind.ACTION, close, "KEYBOARD")

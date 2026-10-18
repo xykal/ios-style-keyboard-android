@@ -133,6 +133,11 @@ class Prefs private constructor(context: Context) {
         get() = sp.getInt(KEY_FLOAT_WIDTH, 96)
         set(v) = sp.edit { putInt(KEY_FLOAT_WIDTH, v.coerceIn(55, 100)) }
 
+    /** Height of the floating keyboard overlay, independent of the regular IME height. */
+    var floatingKeyboardHeightDp: Int
+        get() = sp.getInt(KEY_FLOAT_HEIGHT, (292 * keyboardHeightPercent / 100).coerceIn(220, 420))
+        set(v) = sp.edit { putInt(KEY_FLOAT_HEIGHT, v.coerceIn(220, 480)) }
+
     var floatingBottomMarginDp: Int
         get() = sp.getInt(KEY_FLOAT_BOTTOM, 24)
         set(v) = sp.edit { putInt(KEY_FLOAT_BOTTOM, v.coerceIn(0, 400)) }
@@ -159,10 +164,11 @@ class Prefs private constructor(context: Context) {
         set(v) = sp.edit { putBoolean(KEY_CLIP_KEEP_PINNED, v) }
 
     // ---------- translate ----------
-    /** BCP-47 style code used by the translate endpoints ("auto" for source) */
+    /** MyMemory source code; "Autodetect" is used for automatic source detection. */
     var translateSource: String
-        get() = sp.getString(KEY_TR_SRC, "auto") ?: "auto"
-        set(v) = sp.edit { putString(KEY_TR_SRC, v) }
+        get() = (sp.getString(KEY_TR_SRC, "Autodetect") ?: "Autodetect")
+            .let { if (it.equals("auto", ignoreCase = true)) "Autodetect" else it }
+        set(v) = sp.edit { putString(KEY_TR_SRC, if (v.equals("auto", ignoreCase = true)) "Autodetect" else v) }
 
     var translateTarget: String
         get() = sp.getString(KEY_TR_DST, "id") ?: "id"
@@ -224,6 +230,7 @@ class Prefs private constructor(context: Context) {
         private const val KEY_FLOATING = "floating_keyboard"
         private const val KEY_FLOAT_OPACITY = "float_opacity"
         private const val KEY_FLOAT_WIDTH = "float_width"
+        private const val KEY_FLOAT_HEIGHT = "float_height"
         private const val KEY_FLOAT_BOTTOM = "float_bottom"
         private const val KEY_FLOAT_X = "float_x"
         private const val KEY_FLOAT_BUBBLE = "float_bubble"

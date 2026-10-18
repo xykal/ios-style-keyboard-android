@@ -429,8 +429,17 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
             "TRANSLATE_PREPARE" -> prepareTranslation()
             "TRANSLATE_RUN" -> runTranslation()
             "TRANSLATE_SWAP" -> {
-                prefs.translateTarget = if (prefs.translateTarget == "id") "en" else "id"
-                activeSurface()?.setTranslation(translateSource, prefs.translateTarget, translateResult, loading = false)
+                val sourceLanguage = prefs.translateSource
+                val targetLanguage = prefs.translateTarget
+                if (!sourceLanguage.equals("Autodetect", ignoreCase = true) && !sourceLanguage.equals(targetLanguage, ignoreCase = true)) {
+                    prefs.translateSource = targetLanguage
+                    prefs.translateTarget = sourceLanguage
+                } else {
+                    prefs.translateTarget = if (targetLanguage.substringBefore('-').equals("id", ignoreCase = true)) "en-US" else "id-ID"
+                }
+                translateResult = ""
+                activeSurface()?.setTranslation(translateSource, prefs.translateTarget, "", loading = false)
+                if (translateSource.isNotBlank()) runTranslation()
             }
             "TRANSLATE_INSERT" -> insertTranslation()
             "CURSOR_${KeyEvent.KEYCODE_DPAD_LEFT}" -> sendDpad(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -588,8 +597,9 @@ class KeyboardIME : InputMethodService(), KeyboardActions {
         }
         val token = ++translationToken
         val target = prefs.translateTarget
+        val sourceLanguage = prefs.translateSource
         activeSurface()?.setTranslation(translateSource, target, "", "", true)
-        TranslateClient.translate(translateSource, "auto", target) { result ->
+        TranslateClient.translate(translateSource, sourceLanguage, target) { result ->
             main.post {
                 if (token != translationToken) return@post
                 result.fold(

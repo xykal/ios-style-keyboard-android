@@ -9,14 +9,14 @@ Keyboard Android independen bergaya iPhone—bukan aplikasi resmi Apple. Aplikas
 - **Pengetikan:** prediksi awalan kata dan beberapa saran kata berikutnya, koreksi ringan, kapital otomatis, titik dengan spasi ganda, aksen tekan-lama, dan swipe typing. Kamus dan saran berjalan offline.
 - **Clipboard lokal:** riwayat teks dan gambar, pencarian, kategori, pin, deduplikasi, penghapusan, dan retensi otomatis. Gambar dibatasi 6 MiB per item dan 40 MiB total untuk gambar yang tidak disematkan.
 - **Tempel gambar:** IME mencoba `commitContent` untuk aplikasi tujuan yang menyatakan dukungan MIME gambar. Jika tidak didukung, gambar disalin ke clipboard sistem supaya pengguna dapat mencoba paste biasa. Tidak semua aplikasi Android menerima paste gambar.
-- **Panel mengambang:** keyboard atau bubble clipboard dapat diseret sebagai overlay. Android meminta izin **Tampil di atas aplikasi lain** untuk panel overlay ini. Keyboard biasa sebagai IME Android tidak membutuhkan izin tersebut.
-- **Terjemahan:** Indonesia ↔ English melalui MyMemory. Permintaan hanya dikirim setelah pengguna memilih teks dan meminta terjemahan.
+- **Panel mengambang:** keyboard atau bubble clipboard dapat diseret sebagai overlay. Lebar dan tinggi keyboard mengambang dapat diatur terpisah dan diperbarui saat panel terbuka. Android meminta izin **Tampil di atas aplikasi lain** untuk panel overlay ini. Keyboard biasa sebagai IME Android tidak membutuhkan izin tersebut.
+- **Terjemahan:** pilihan bahasa sumber dan tujuan yang dapat dicari, mencakup lebih dari 100 kode bahasa yang digunakan adapter MyMemory. Dukungan tiap pasangan bahasa dapat berbeda. Teks hanya dikirim setelah pengguna meminta terjemahan; potongan lebih dari 500 byte dipecah otomatis.
 
 ## Password dan privasi
 
 Keyboard ini **tidak menyimpan password atau login dari ketikan** dan bukan password manager. Gunakan Android Autofill atau password manager pilihanmu untuk menyimpan dan mengisi login. Kolom password serta field dengan `IME_FLAG_NO_PERSONALIZED_LEARNING` tidak menerima prediksi atau tangkapan clipboard otomatis. Clipboard yang secara eksplisit ditandai sensitif oleh aplikasi sumber diabaikan. Database dan file gambar clipboard disimpan di ruang privat aplikasi; Android Backup dinonaktifkan. Hapus riwayat dari layar Clipboard untuk menghapus data tersimpan.
 
-Keterbatasan akses clipboard ditentukan Android dan aplikasi sumber. Riwayat ditangkap ketika IME aktif dan izin sistem mengizinkan. Prediksi, koreksi, dan swipe tidak mengirim teks ke internet. Terjemahan mengirim teks terpilih ke layanan eksternal hanya atas permintaan pengguna; jangan terjemahkan data rahasia.
+Keterbatasan akses clipboard ditentukan Android dan aplikasi sumber. Riwayat ditangkap ketika IME aktif dan izin sistem mengizinkan. Prediksi, koreksi, dan swipe tidak mengirim teks ke internet. Terjemahan mengirim teks terpilih ke MyMemory hanya atas permintaan pengguna; jangan terjemahkan data rahasia. MyMemory membatasi penggunaan anonim hingga 5.000 karakter per hari dan 500 byte per permintaan; teks panjang dipecah menjadi beberapa permintaan. Lihat [spesifikasi API](https://mymemory.translated.net/doc/spec.php) dan [batas penggunaan](https://mymemory.translated.net/doc/usagelimits.php).
 
 ## Cara pakai
 
@@ -28,7 +28,7 @@ Keterbatasan akses clipboard ditentukan Android dan aplikasi sumber. Riwayat dit
 
 ## Build di GitHub Actions
 
-Workflow `.github/workflows/android.yml` membangun APK debug dan release di GitHub Actions pada push, pull request, atau **Run workflow**. Hasil run tersedia di **Actions → workflow run → Artifacts** selama 14 hari. Push tag versi baru seperti `v1.1.0` menjalankan build dan membuat **Draft Release** berisi kedua APK; draft tidak dipublikasikan otomatis.
+Workflow `.github/workflows/android.yml` membangun APK debug, APK release, dan Android App Bundle (AAB) di GitHub Actions pada push, pull request, atau **Run workflow**. Hasil run tersedia di **Actions → workflow run → Artifacts** selama 14 hari. Push tag versi seperti `v1.1.0` wajib memakai keystore release yang sudah dikonfigurasi; Actions memverifikasi signature APK/AAB terhadap identitas signing yang ada lalu membuat **Draft Release** berisi APK release dan AAB. Draft tidak dipublikasikan otomatis, dan APK debug tidak disertakan.
 
 Release memakai R8 (minify dan shrink resources aktif). Keystore release dibaca dari Actions secrets berikut—jangan commit keystore, password, atau GitHub token ke source:
 
@@ -37,7 +37,7 @@ Release memakai R8 (minify dan shrink resources aktif). Keystore release dibaca 
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-Kunci signing Android yang dibuat sendiri bukan verifikasi Google Play atau Play App Signing. Simpan backup JKS dan kredensial secara terpisah dan aman.
+Workflow memakai keystore signing yang sudah ada; jangan menggantinya dengan keystore baru karena pembaruan aplikasi harus memakai identitas signing yang sama. Kunci tersebut bukan Play App Signing: untuk distribusi melalui Google Play, AAB tetap harus diunggah melalui Play Console dan Play App Signing dikonfigurasi di sana. Simpan backup JKS dan kredensial secara terpisah dan aman.
 
 ## Sumber kamus
 

@@ -75,6 +75,10 @@ class FloatingService : Service() {
                 if (command.getBooleanExtra(EXTRA_REOPEN_IME, false)) KeyboardBridge.showImeAfterFloating(this)
                 finishIfNothingVisible()
             }
+            ACTION_UPDATE_KEYBOARD_SIZE -> {
+                if (keyboardSurface != null) updateKeyboardSize()
+                else finishIfNothingVisible()
+            }
             ACTION_SHOW_CLIPBOARD -> {
                 beginForeground()
                 showBubble()
@@ -385,11 +389,10 @@ class FloatingService : Service() {
         val display = resources.displayMetrics
         val screenW = display.widthPixels
         val screenH = display.heightPixels
-        val requestedWidth = if (prefs.keyboardLayout == Prefs.LAYOUT_PC) screenW
-            else (screenW * prefs.floatingWidthPercent / 100).coerceAtLeast(dp(250))
+        val requestedWidth = floatingKeyboardWidth(screenW)
         val params = WindowManager.LayoutParams(
-            requestedWidth.coerceAtMost(screenW),
-            dp((292 * prefs.keyboardHeightPercent / 100).coerceIn(220, 420)),
+            requestedWidth,
+            dp(prefs.floatingKeyboardHeightDp),
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
@@ -407,6 +410,31 @@ class FloatingService : Service() {
             KeyboardBridge.get()?.setFloatingSurface(surface)
         } catch (_: Exception) {
             toast("Keyboard mengambang gagal dibuka. Periksa izin overlay.")
+        }
+    }
+
+    private fun floatingKeyboardWidth(screenWidth: Int): Int {
+        val requested = if (prefs.keyboardLayout == Prefs.LAYOUT_PC) screenWidth
+        else (screenWidth * prefs.floatingWidthPercent / 100).coerceAtLeast(dp(250))
+        return requested.coerceAtMost(screenWidth)
+    }
+
+    /** Apply the width/height controls immediately when the overlay is already open. */
+    private fun updateKeyboardSize() {
+        val view = keyboardSurface ?: return
+        val params = keyboardParams ?: return
+        val display = resources.displayMetrics
+        params.width = floatingKeyboardWidth(display.widthPixels)
+        params.height = dp(prefs.floatingKeyboardHeightDp)
+        params.x = ((display.widthPixels - params.width) / 2f + prefs.floatingXOffsetDp * display.density).toInt()
+        params.y = (display.heightPixels - params.height - dp(prefs.floatingBottomMarginDp)).coerceAtLeast(dp(20))
+        clampKeyboardPosition(params)
+        try {
+            windowManager.updateViewLayout(view, params)
+            view.requestLayout()
+            view.invalidate()
+        } catch (_: Exception) {
+            // The overlay may have been dismissed while the user was changing settings.
         }
     }
 
@@ -517,12 +545,16 @@ class FloatingService : Service() {
         private const val EXTRA_REOPEN_IME = "reopen_ime"
         private const val ACTION_SHOW_KEYBOARD = "com.ioskeyboard.app.action.SHOW_KEYBOARD"
         private const val ACTION_HIDE_KEYBOARD = "com.ioskeyboard.app.action.HIDE_KEYBOARD"
+        private const val ACTION_UPDATE_KEYBOARD_SIZE = "com.ioskeyboard.app.action.UPDATE_KEYBOARD_SIZE"
         private const val ACTION_SHOW_CLIPBOARD = "com.ioskeyboard.app.action.SHOW_CLIPBOARD"
         private const val ACTION_HIDE_CLIPBOARD = "com.ioskeyboard.app.action.HIDE_CLIPBOARD"
         private const val ACTION_STOP_ALL = "com.ioskeyboard.app.action.STOP_ALL"
 
         fun startClipboard(context: Context) = start(context, ACTION_SHOW_CLIPBOARD)
         fun startKeyboard(context: Context) = start(context, ACTION_SHOW_KEYBOARD)
+        fun updateKeyboardSize(context: Context) {
+            context.startService(Intent(context, FloatingService::class.java).setAction(ACTION_UPDATE_KEYBOARD_SIZE))
+        }
         fun stopKeyboard(context: Context, reopenIme: Boolean = false) {
             val intent = Intent(context, FloatingService::class.java).setAction(ACTION_HIDE_KEYBOARD).putExtra(EXTRA_REOPEN_IME, reopenIme)
             context.startService(intent)

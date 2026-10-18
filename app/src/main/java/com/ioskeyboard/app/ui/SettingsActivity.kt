@@ -7,19 +7,28 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.ioskeyboard.app.floatwin.FloatingService
+import com.ioskeyboard.app.net.TranslationLanguages
 import com.ioskeyboard.app.util.Prefs
 
 /** Compact but complete preferences screen; changes persist locally and apply on next keypress. */
@@ -30,6 +39,8 @@ class SettingsActivity : AppCompatActivity() {
     private val muted = 0xFF686D78.toInt()
     private val blue = 0xFF0A84FF.toInt()
     private var pendingOverlay = ""
+    private val sizeUpdateHandler = Handler(Looper.getMainLooper())
+    private val sizeUpdateRunnable = Runnable { FloatingService.updateKeyboardSize(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,9 +153,19 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         addSlider("Transparansi keyboard mengambang", prefs.floatingOpacity, 30, 100, "%") { prefs.floatingOpacity = it }
-        addSlider("Lebar keyboard mengambang", prefs.floatingWidthPercent, 55, 100, "%") { prefs.floatingWidthPercent = it }
-        addLabel("Layout QWERTY PC memakai lebar layar penuh agar tombol F1–F12 dan navigasi mudah ditekan.", 11f, muted, false, dp(2))
-        addSlider("Jarak dari bawah layar", prefs.floatingBottomMarginDp, 0, 240, " dp") { prefs.floatingBottomMarginDp = it }
+        addSlider("Lebar keyboard mengambang", prefs.floatingWidthPercent, 55, 100, "%") {
+            prefs.floatingWidthPercent = it
+            scheduleFloatingResize()
+        }
+        addSlider("Tinggi keyboard mengambang", prefs.floatingKeyboardHeightDp, 220, 480, " dp") {
+            prefs.floatingKeyboardHeightDp = it
+            scheduleFloatingResize()
+        }
+        addLabel("Ukuran berubah langsung jika overlay sedang terbuka. Layout QWERTY PC tetap memakai lebar layar penuh agar tombol F1–F12 mudah ditekan.", 11f, muted, false, dp(2))
+        addSlider("Jarak dari bawah layar", prefs.floatingBottomMarginDp, 0, 240, " dp") {
+            prefs.floatingBottomMarginDp = it
+            scheduleFloatingResize()
+        }
 
         section("Papan klip")
         addSwitch("Simpan riwayat otomatis", "Simpan teks atau gambar yang disalin saat keyboard aktif; salinan sensitif diabaikan.", prefs.clipboardCapture) { prefs.clipboardCapture = it }
@@ -153,10 +174,13 @@ class SettingsActivity : AppCompatActivity() {
         addButton("Buka riwayat clipboard", "Teks dan gambar disimpan lokal di perangkat") { startActivity(Intent(this, ClipboardActivity::class.java)) }
 
         section("Terjemahan")
-        addChoice("Bahasa tujuan", listOf("Indonesia", "English"), if (prefs.translateTarget == "id") 0 else 1) {
-            prefs.translateTarget = if (it == 0) "id" else "en"
+        addLanguagePicker("Bahasa sumber", prefs.translateSource, allowAuto = true) {
+            prefs.translateSource = it
         }
-        addLabel("Terjemahan hanya diminta saat kamu menekan tombolnya. Teks yang dipilih dikirim melalui internet ke layanan terjemahan; prediksi dan clipboard tidak dikirim.", 12f, muted, false, dp(5))
+        addLanguagePicker("Bahasa tujuan", prefs.translateTarget, allowAuto = false) {
+            prefs.translateTarget = it
+        }
+        addLabel("Pilih dari lebih dari 100 kode bahasa yang digunakan adapter MyMemory; ketersediaan tiap pasangan bahasa dapat berbeda. Teks hanya dikirim saat kamu meminta terjemahan. MyMemory membatasi permintaan anonim hingga 5.000 karakter per hari dan 500 byte per potongan; teks panjang dipecah otomatis.", 12f, muted, false, dp(5))
 
         section("Privasi")
         addLabel("• Prediksi dan koreksi berjalan lokal; kata sandi tidak dipelajari atau disimpan keyboard.\n• Gunakan Android Autofill/password manager untuk login dan sandi.\n• Riwayat clipboard disimpan lokal dan tidak disinkronkan ke cloud; salinan yang ditandai sensitif akan diabaikan.\n• Database aplikasi dikecualikan dari Android Backup. Terjemahan saja yang mengirim teks terpilih ke layanan online saat kamu memintanya.", 12f, muted, false, dp(4))
@@ -231,6 +255,70 @@ class SettingsActivity : AppCompatActivity() {
             row.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
         }
         page.addView(row)
+    }
+
+    private fun addLanguagePicker(title: String, selectedCode: String, allowAuto: Boolean, onSelected: (String) -> Unit) {
+        val selectedName = TranslationLanguages.find(selectedCode)?.name ?: selectedCode.uppercase()
+        val button = MaterialButton(this).apply {
+            text = "$title: $selectedName"
+            textSize = 13f
+            isAllCaps = false
+            cornerRadius = dp(12)
+            setBackgroundColor(Color.WHITE)
+            setTextColor(ink)
+            strokeWidth = dp(1)
+            strokeColor = android.content.res.ColorStateList.valueOf(0xFFDDE0E6.toInt())
+            setOnClickListener { showLanguageDialog(title, selectedCode, allowAuto, onSelected) }
+        }
+        page.addView(button, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(6) })
+    }
+
+    private fun showLanguageDialog(title: String, selectedCode: String, allowAuto: Boolean, onSelected: (String) -> Unit) {
+        val options = if (allowAuto) TranslationLanguages.all else TranslationLanguages.targets
+        val selectedCanonical = TranslationLanguages.find(selectedCode)?.code
+        fun displayName(language: TranslationLanguages.Language): String =
+            if (language.code == selectedCanonical) "${language.name} (dipilih)" else language.name
+        val filtered = options.toMutableList()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, filtered.map { displayName(it) }.toMutableList())
+        val list = ListView(this).apply { this.adapter = adapter }
+        val search = EditText(this).apply {
+            hint = "Cari nama atau kode bahasa"
+            setSingleLine(true)
+            textSize = 15f
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(4), dp(18), 0)
+            addView(search, LinearLayout.LayoutParams(-1, dp(52)))
+            addView(list, LinearLayout.LayoutParams(-1, dp(340)))
+        }
+        val dialog = AlertDialog.Builder(this).setTitle(title).setView(content).create()
+        list.setOnItemClickListener { _, _, position, _ ->
+            val language = filtered.getOrNull(position) ?: return@setOnItemClickListener
+            dialog.dismiss()
+            onSelected(language.code)
+            build()
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString()?.trim().orEmpty()
+                filtered.clear()
+                filtered.addAll(options.filter {
+                    query.isBlank() || it.name.contains(query, ignoreCase = true) || it.code.contains(query, ignoreCase = true)
+                })
+                adapter.clear()
+                adapter.addAll(filtered.map { displayName(it) })
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        dialog.show()
+    }
+
+    private fun scheduleFloatingResize() {
+        sizeUpdateHandler.removeCallbacks(sizeUpdateRunnable)
+        sizeUpdateHandler.postDelayed(sizeUpdateRunnable, 120L)
     }
 
     private fun addAccentPalette() {

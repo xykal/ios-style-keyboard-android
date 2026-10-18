@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug and signed release APKs
+    name: Build debug APK and signed release APK/AAB
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -43,15 +43,19 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Prepare optional release keystore
+      - name: Prepare release signing identity
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "::notice::No release keystore secret; release will use the debug signing key for testing only."
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::A version tag requires all configured release keystore secrets; refusing to produce a debug-signed release."
+              exit 1
+            fi
+            echo "::notice::Release keystore secrets are incomplete; release will use the debug signing key for testing only."
             exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-keyboard-release.jks"
@@ -60,16 +64,35 @@ jobs:
           echo "KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
           echo "KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: Build APKs on GitHub
-        run: ./gradlew --no-daemon assembleDebug assembleRelease
+      - name: Build APKs and Android App Bundle on GitHub
+        run: ./gradlew --no-daemon assembleDebug assembleRelease bundleRelease
 
-      - name: Upload APK artifacts
+      - name: Verify release signatures and existing signing identity
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha256="355832902472cfab443183750de03a073004d106632e0ed4a217482e357ba082"
+          apk="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          aab="$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)"
+          test -n "$apk" && test -n "$aab"
+          apk_sha256="$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {gsub(/:/, "", $2); print tolower($2); exit}')"
+          jarsigner -verify -certs "$aab" >/dev/null
+          aab_sha256="$(keytool -printcert -jarfile "$aab" | awk '/SHA256:/ {gsub(/:/, "", $2); print tolower($2); exit}')"
+          if [[ "$apk_sha256" != "$expected_sha256" || "$aab_sha256" != "$expected_sha256" ]]; then
+            echo "::error::Release artifact signing identity does not match the existing key."
+            exit 1
+          fi
+          echo "Verified APK and AAB signing identity: $apk_sha256"
+
+      - name: Upload APK and AAB artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-keyboard-apks
+          name: ios-keyboard-builds
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
 
@@ -82,5 +105,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
