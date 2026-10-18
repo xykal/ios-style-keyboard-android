@@ -1,0 +1,17 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Signing material and local secrets
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
+# Generated outputs
+*.apk
+*.aab

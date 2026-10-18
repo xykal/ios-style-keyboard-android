@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">iOS Keyboard</string>
+    <string name="ime_label">iOS Keyboard — Indonesian &amp; English</string>
+    <string name="settings_title">Pengaturan keyboard</string>
+    <string name="clipboard_title">Riwayat papan klip</string>
+    <string name="subtype_id">Bahasa Indonesia</string>
+    <string name="subtype_en">English (US)</string>
+    <string name="notification_channel">Kontrol keyboard mengambang</string>
+    <string name="notification_title">iOS Keyboard aktif</string>
+    <string name="notification_text">Keyboard / papan klip mengambang sedang berjalan.</string>
+</resources>
