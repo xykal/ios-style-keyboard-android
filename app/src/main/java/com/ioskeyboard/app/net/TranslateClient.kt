@@ -15,6 +15,7 @@ import java.util.concurrent.Future
 object TranslateClient {
     private const val MAX_QUERY_BYTES = 450 // MyMemory documents a maximum of 500 UTF-8 bytes per q.
     private const val MAX_INPUT_CODE_POINTS = 4500
+    private const val AUTO_DETECT_SOURCE = "Autodetect" // MyMemory rejects the common "auto" alias.
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "one-shot-translate").apply { isDaemon = true } }
     private val requestExecutor = Executors.newFixedThreadPool(3) { r -> Thread(r, "translation-request").apply { isDaemon = true } }
 
@@ -31,8 +32,8 @@ object TranslateClient {
             callback(Result.failure(IllegalArgumentException("Pilih atau ketik teks yang mau diterjemahkan.")))
             return
         }
-        val sourceCode = source.trim().ifBlank { "Autodetect" }.let {
-            if (it.equals("auto", ignoreCase = true)) "Autodetect" else it
+        val sourceCode = source.trim().ifBlank { AUTO_DETECT_SOURCE }.let {
+            if (it.equals("auto", ignoreCase = true)) AUTO_DETECT_SOURCE else it
         }
         val targetCode = target.trim().ifBlank { "id" }
         executor.execute {
